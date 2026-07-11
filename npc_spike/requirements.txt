@@ -1,0 +1,3 @@
+# Cerebras exposes an OpenAI-compatible API, so the official openai client works.
+# (Alternatively: pip install cerebras_cloud_sdk — but this spike uses openai.)
+openai>=1.0.0

@@ -1,0 +1,8 @@
+# Runtime state is generated on first run — keep it out of version control so
+# every tester starts from a clean slate.
+data/state.json
+
+__pycache__/
+*.pyc
+.venv/
+venv/
