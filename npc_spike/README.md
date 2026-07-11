@@ -44,17 +44,23 @@ inventing a new one each reply. It's a single editable block (`WORLD` /
 `SETTING_NAME`) at the top of `npc.py`; rewrite it to re-skin the whole thing
 (different town, or a modern/sci-fi setting) and Wren follows.
 
-## The meeting scenario
+## The meeting scenario & playing your character
 
 Every session opens with a concrete scene instead of dropping the player into a
-blank prompt. On the **first ever session** you're a soaked stranger ducking
-into the Gull's Rest tavern out of a storm — Wren has never seen you and sizes
-you up accordingly. On **every later session** you're walking back in, and Wren
-speaks first, greeting you based on what she remembers — which makes the
-cross-session memory visible the moment the session starts. The scene text
-lives beside `WORLD` in `npc.py` (`FIRST_MEETING_*` / `RETURN_*`) and is both
-printed to the player as narration and injected into Wren's prompt, so you both
-share the same picture.
+blank prompt. On the **first ever session** you're a traveler caught by the
+storm — night falling, boots soaked, in need of a roof and maybe work — ducking
+into the Gull's Rest tavern, where Wren has never seen you and sizes you up
+accordingly. **Who you are is yours to decide**: your name, your trade, why
+you're on the road; Wren remembers whatever you show her. On **every later
+session** you're walking back in, and Wren speaks first, greeting you based on
+what she remembers — which makes the cross-session memory visible the moment
+the session starts.
+
+You can **speak** plainly or **act** by wrapping text in `*asterisks*` (or
+parentheses) — e.g. `*takes a seat by the fire*` — and Wren reacts to actions
+physically, not just to words. The scene text lives beside `WORLD` in `npc.py`
+(`FIRST_MEETING_*` / `RETURN_*`) and is both printed to the player as narration
+and injected into Wren's prompt, so you both share the same picture.
 
 State is also saved on *every* exit path now — clean `quit`, `Ctrl-C`, or an API
 error mid-session — so a hiccup can never wipe a conversation's memories.

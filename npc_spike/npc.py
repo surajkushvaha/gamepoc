@@ -74,6 +74,18 @@ How to behave — this is the important part:
   script to keep reciting.
 - Stay consistent with what you remember. Never break character or mention being
   a model or an AI.
+
+Reading the traveler's input:
+- Text wrapped in *asterisks* or (parentheses) is something they DO, not say —
+  e.g. "*sits by the fire*" means they physically sat down. React to actions
+  physically and naturally, the way you'd react to someone actually doing it.
+- Everything else is spoken aloud.
+
+Your own format:
+- You may open with ONE brief parenthetical of physical action, e.g.
+  "(glances up from the counter.)" — never more than one, keep it short.
+- Then your spoken words. ALWAYS finish your sentence — never trail off
+  mid-thought.
 """
 
 
@@ -100,12 +112,24 @@ def _format_beliefs(beliefs):
 # is both PRINTED to the player as narration and INJECTED into Wren's prompt so
 # the two of you share the same picture.
 
-# What the PLAYER reads at the start of their very first session.
+# What the PLAYER reads at the start of their very first session. It hands the
+# player a stake (night, storm, no roof, empty pockets) and an explicit
+# invitation to decide who they are — without dictating a backstory.
 FIRST_MEETING_NARRATION = """\
-Rain drives in hard off the sea as evening falls on Saltmere. You duck through
-the low door of the Gull's Rest, dripping wet, the only traveler in tonight.
+You are a traveler on the coast road, and the storm caught you a mile outside
+Saltmere. Night is falling, your boots are soaked through, and the only light
+still burning is a tavern by the harbor: the Gull's Rest. You need a roof
+tonight, maybe work tomorrow — and you know no one in this town.
+
+Who you are is yours to decide — your name, your trade, what put you on the
+road. The one behind the counter will remember whatever you show them.
+
+You duck through the low door, dripping wet, the only traveler in tonight.
 Behind the counter, someone with sharp eyes looks up from stacking mugs.
-That's Wren."""
+That's Wren.
+
+(You can speak plainly, or act by wrapping text in *asterisks* — e.g.
+*takes a seat by the fire*.)"""
 
 # The same moment, from WREN's point of view (goes into the system prompt).
 FIRST_MEETING_SCENE = f"""\
@@ -119,7 +143,9 @@ stranger; be civil but don't hand a stranger your life story."""
 RETURN_NARRATION = """\
 You push open the door of the Gull's Rest again. The smell of woodsmoke and
 salt. Wren is here, and looks up as you come in — recognition crosses their
-face."""
+face.
+
+(Speak plainly, or act with *asterisks* — e.g. *takes a seat by the fire*.)"""
 
 # The same moment, from WREN's point of view.
 RETURN_SCENE = """\
@@ -163,9 +189,10 @@ def generate_reply(beliefs, memories, conversation, scene):
     """
     messages = [{"role": "system", "content": build_system_prompt(beliefs, memories, scene)}]
     messages.extend(conversation)
-    # Short cap: a big token budget just invites the model to ramble into
-    # assistant-style paragraphs. Wren speaks in a line or two.
-    return chat(messages, max_completion_tokens=220, temperature=0.85)
+    # Capped so Wren can't ramble into assistant-style paragraphs, but with
+    # headroom for her one-parenthetical stage direction + a finished sentence
+    # (220 was cutting replies off mid-thought).
+    return chat(messages, max_completion_tokens=350, temperature=0.85)
 
 
 def generate_opening(beliefs, memories, first_meeting):
@@ -190,4 +217,4 @@ def generate_opening(beliefs, memories, first_meeting):
         {"role": "system", "content": build_system_prompt(beliefs, memories, scene)},
         {"role": "user", "content": f"({nudge})"},
     ]
-    return chat(messages, max_completion_tokens=150, temperature=0.85)
+    return chat(messages, max_completion_tokens=200, temperature=0.85)
