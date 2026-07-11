@@ -74,6 +74,11 @@ How to behave — this is the important part:
   script to keep reciting.
 - Stay consistent with what you remember. Never break character or mention being
   a model or an AI.
+- NEVER repeat yourself. Your memories below are things that ALREADY happened —
+  don't re-say an old remark, joke, or offer, and don't replay an old answer.
+  If they ask something you've already answered on a past visit, react like a
+  person would: call it out ("You asked me that yesterday"), tease them about
+  it, or answer from a different angle — anything but the same words again.
 
 Reading the traveler's input:
 - Text wrapped in *asterisks* or (parentheses) is something they DO, not say —
@@ -92,8 +97,11 @@ Your own format:
 def _format_memories(memories):
     if not memories:
         return "(no memories of this person yet)"
+    # Chronological order so past visits read as a story — it lets the model
+    # notice "they already asked me this" instead of blindly replaying answers.
+    ordered = sorted(memories, key=lambda m: m["timestamp"])
     lines = []
-    for m in memories:
+    for m in ordered:
         lines.append(f"- {m['description']} ({m['emotional_valence']})")
     return "\n".join(lines)
 
@@ -139,20 +147,51 @@ NEVER seen this person before. You know nothing about them: not their name, not
 where they're from, not why they're in {SETTING_NAME}. Size them up like any
 stranger; be civil but don't hand a stranger your life story."""
 
-# What the PLAYER reads when they come back in a later session.
+# Rotating flavor for return visits. A fixed return scene made every revisit
+# start from the identical setup, so sessions converged to near-identical
+# dialog. Each entry is (what the player reads, the same detail from Wren's
+# POV); main.py picks one at random per session, giving the model a genuinely
+# different moment to react to each time.
+SESSION_FLAVORS = [
+    ("It's early morning; the tavern is empty and smells of fresh bread. Wren "
+     "is hauling a crate of bottles behind the counter.",
+     "It's early morning, the tavern is empty, and you're hauling a crate of "
+     "bottles behind the counter."),
+    ("It's midday and the place is loud — fishers arguing over a card game in "
+     "the corner. Wren is threading between tables with plates.",
+     "It's a loud midday — fishers arguing over cards in the corner — and "
+     "you're run off your feet carrying plates."),
+    ("It's a gray, drizzly afternoon. The tavern is dead quiet and Wren is "
+     "mending a net by the window, feet up on a stool.",
+     "It's a gray, drizzly afternoon, the tavern is dead quiet, and you're "
+     "mending a net by the window with your feet up."),
+    ("It's evening; the hearth is roaring and a fiddler plays badly in the "
+     "corner. Wren winces at every wrong note.",
+     "It's evening, the hearth is roaring, and a fiddler in the corner keeps "
+     "hitting wrong notes that make you wince."),
+    ("It's late night, chairs already up on half the tables. Wren is counting "
+     "the till by candlelight and looks tired.",
+     "It's late night, you're counting the till by candlelight, you're tired, "
+     "and you were about to lock up."),
+]
+
+# What the PLAYER reads when they come back in a later session. The session's
+# flavor line is appended by main.py.
 RETURN_NARRATION = """\
 You push open the door of the Gull's Rest again. The smell of woodsmoke and
-salt. Wren is here, and looks up as you come in — recognition crosses their
-face.
+salt. Wren looks up as you come in — recognition crosses their face."""
 
-(Speak plainly, or act with *asterisks* — e.g. *takes a seat by the fire*.)"""
+RETURN_NARRATION_HINT = (
+    "(Speak plainly, or act with *asterisks* — e.g. *takes a seat by the fire*.)"
+)
 
-# The same moment, from WREN's point of view.
+# The same moment, from WREN's point of view. The flavor detail is appended.
 RETURN_SCENE = """\
 You're at the Gull's Rest and the person just walked in again — someone you've
 met before. Your memories and beliefs about them (below) are everything you know.
 React the way those memories deserve: warmer if things have been good between
-you, cooler if they've been careless with you."""
+you, cooler if they've been careless with you. Today is a NEW day — don't
+re-run your last conversation; you have your own things going on."""
 
 
 def build_system_prompt(beliefs, memories, scene):
@@ -172,7 +211,7 @@ def build_system_prompt(beliefs, memories, scene):
 --- What you currently believe about this person ---
 {_format_beliefs(beliefs)}
 
---- Things you remember (most relevant first) ---
+--- Things you remember about them (oldest first — these already happened) ---
 {_format_memories(memories)}
 
 Respond as {NAME}, staying true to your personality and everything above.
@@ -195,7 +234,7 @@ def generate_reply(beliefs, memories, conversation, scene):
     return chat(messages, max_completion_tokens=350, temperature=0.85)
 
 
-def generate_opening(beliefs, memories, first_meeting):
+def generate_opening(beliefs, memories, first_meeting, scene=None):
     """Wren speaks FIRST when the player arrives — a person reacts to someone
     walking in; only a chatbot waits silently for input.
 
@@ -203,15 +242,17 @@ def generate_opening(beliefs, memories, first_meeting):
     it's a greeting drawn from her memories — which also makes the memory system
     visible the moment a session starts.
     """
-    scene = FIRST_MEETING_SCENE if first_meeting else RETURN_SCENE
+    if scene is None:
+        scene = FIRST_MEETING_SCENE if first_meeting else RETURN_SCENE
     nudge = (
         "The stranger has just come through the door. Say your opening line — "
         "a short, natural reaction to a soaked stranger walking in. Do not "
         "interrogate them."
         if first_meeting
         else "They've just come through the door. Greet them the way your "
-        "memories of them deserve — reference something you remember if it "
-        "comes naturally."
+        "memories of them deserve. Vary it — reacting from what you're doing "
+        "right now is as good as a callback; do NOT reuse a greeting or joke "
+        "you've made before."
     )
     messages = [
         {"role": "system", "content": build_system_prompt(beliefs, memories, scene)},

@@ -8,12 +8,16 @@ The four core-loop steps from the spec are marked STEP 1-4 below.
 
 from llm import describe_route, get_client
 from memory import reflect, retrieve, summarize_turn
+import random
+
 from npc import (
     FIRST_MEETING_NARRATION,
     FIRST_MEETING_SCENE,
     NAME,
     RETURN_NARRATION,
+    RETURN_NARRATION_HINT,
     RETURN_SCENE,
+    SESSION_FLAVORS,
     generate_opening,
     generate_reply,
 )
@@ -128,17 +132,24 @@ def main():
 
     # --- Set the scene: how the player and Wren actually meet ---------------
     # First-ever session = the first meeting (a stranger out of the rain).
-    # Any later session = a return visit, where Wren's memories set the tone.
+    # Any later session = a return visit on a randomly different moment of the
+    # day, so revisits don't all start from the identical setup and converge
+    # to the same dialog.
     first_meeting = mem_count == 0
-    scene = FIRST_MEETING_SCENE if first_meeting else RETURN_SCENE
-    print(FIRST_MEETING_NARRATION if first_meeting else RETURN_NARRATION)
+    if first_meeting:
+        scene = FIRST_MEETING_SCENE
+        print(FIRST_MEETING_NARRATION)
+    else:
+        player_flavor, wren_flavor = random.choice(SESSION_FLAVORS)
+        scene = f"{RETURN_SCENE}\nRight now: {wren_flavor}"
+        print(f"{RETURN_NARRATION}\n{player_flavor}\n\n{RETURN_NARRATION_HINT}")
     print()
 
     # Wren reacts to you walking in — a person speaks first; only a chatbot
     # waits silently for input. On return visits this greeting is drawn from
     # her memories, so cross-session recall is visible immediately.
     try:
-        opening = generate_opening(state["beliefs"], retrieve(state), first_meeting)
+        opening = generate_opening(state["beliefs"], retrieve(state), first_meeting, scene)
         conversation.append({"role": "assistant", "content": opening})
         print(f"{NAME}> {opening}\n")
     except Exception as err:  # noqa: BLE001 - a failed opening isn't fatal
