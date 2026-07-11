@@ -50,11 +50,11 @@ error mid-session — so a hiccup can never wipe a conversation's memories.
 ## Setup
 
 1. **Get at least one free API key** (all no-credit-card):
-   - [Groq](https://console.groq.com) — fast, generous free tier (recommended primary)
-   - [Cerebras](https://cloud.cerebras.ai)
-   - [OpenRouter](https://openrouter.ai) (use a `:free` model)
-   - [NVIDIA NIM](https://build.nvidia.com)
+   - [Cerebras](https://cloud.cerebras.ai) — hosts Gemma 4 31B, very fast (recommended primary)
+   - [NVIDIA NIM](https://build.nvidia.com) — hosts Gemma 4 31B
+   - [OpenRouter](https://openrouter.ai) — hosts Gemma 4 31B as a `:free` model
    - [Cloudflare Workers AI](https://dash.cloudflare.com) (needs token **and** account id)
+   - [Groq](https://console.groq.com) — no Gemma 4; Llama availability fallback
 
 2. **Install dependencies** (Python 3.10+):
    ```bash
@@ -76,27 +76,27 @@ rate-limits, errors, or returns empty output, it **immediately falls over to the
 next**. You only need one key to run, but adding several is what makes 429s a
 non-issue. Providers whose key is missing are skipped automatically.
 
-Default order (all ~llama-3.3-70b-class instruct models, so behavior stays
-consistent whichever answers):
+The default model is **Gemma 4 31B** everywhere it's hosted, so the NPC's voice
+stays consistent whichever provider answers:
 
 ```
-groq → cerebras → nvidia → cloudflare → openrouter
+cerebras:gemma-4-31b
+  → nvidia:google/gemma-4-31b-it
+  → openrouter:google/gemma-4-31b-it:free
+  → cloudflare:@cf/google/gemma-4-26b-a4b-it   (closest: CF only hosts the 26B-A4B variant)
+  → groq:llama-3.3-70b-versatile               (Groq has no Gemma 4; availability fallback)
 ```
 
 Override it in `.env` (or the environment) with `NPC_AI_ROUTE`, using
 `provider:model` entries, best-first:
 
 ```bash
-NPC_AI_ROUTE=groq:llama-3.3-70b-versatile, cerebras:gpt-oss-120b, openrouter:meta-llama/llama-3.3-70b-instruct:free
+NPC_AI_ROUTE=cerebras:gemma-4-31b, openrouter:google/gemma-4-31b-it:free
 ```
 
 The active route is printed at startup, and each failover logs which provider it
 skipped and why. Supported provider keys: `groq`, `cerebras`, `nvidia`,
 `openrouter`, `cloudflare`.
-
-> Note: Cerebras deprecated `llama-3.3-70b` in Feb 2026, so its entry uses
-> `gpt-oss-120b` (its recommended open-weight replacement). The other providers
-> still serve a real Llama 3.3 70B.
 
 ## Testing the memory across sessions
 

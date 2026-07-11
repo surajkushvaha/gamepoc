@@ -32,19 +32,21 @@ _PROVIDERS = {
     "cloudflare": ("__cloudflare__",                    "CLOUDFLARE_API_TOKEN"),
 }
 
-# gpt-oss on Cerebras wants the newer `max_completion_tokens`; every other
+# Cerebras' API prefers the newer `max_completion_tokens`; every other
 # provider here still expects the classic `max_tokens`.
 _TOKEN_PARAM = {"cerebras": "max_completion_tokens"}
 
-# Default failover order (best-first). Groq is fast with a generous free tier,
-# so it leads; the rest are backups. All are ~llama-3.3-70b-class instruct
-# models so behavior stays consistent whichever one answers.
+# Default failover order (best-first), standardized on Gemma 4 so the NPC's
+# voice stays consistent whichever provider answers. Gemma 4 31B is hosted on
+# Cerebras, NVIDIA, and OpenRouter; Cloudflare only has the smaller 26B-A4B
+# variant (closest match); Groq doesn't host Gemma 4 at all, so it sits last
+# with a Llama fallback purely for availability.
 DEFAULT_ROUTE = [
+    "cerebras:gemma-4-31b",
+    "nvidia:google/gemma-4-31b-it",
+    "openrouter:google/gemma-4-31b-it:free",
+    "cloudflare:@cf/google/gemma-4-26b-a4b-it",
     "groq:llama-3.3-70b-versatile",
-    "cerebras:gpt-oss-120b",
-    "nvidia:meta/llama-3.3-70b-instruct",
-    "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    "openrouter:meta-llama/llama-3.3-70b-instruct:free",
 ]
 
 # If a full pass over the route fails (e.g. everything is momentarily limited),
