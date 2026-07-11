@@ -36,17 +36,23 @@ _PROVIDERS = {
 # provider here still expects the classic `max_tokens`.
 _TOKEN_PARAM = {"cerebras": "max_completion_tokens"}
 
-# Default failover order (best-first), standardized on Gemma 4 so the NPC's
-# voice stays consistent whichever provider answers. Gemma 4 31B is hosted on
-# Cerebras, NVIDIA, and OpenRouter; Cloudflare only has the smaller 26B-A4B
-# variant (closest match); Groq doesn't host Gemma 4 at all, so it sits last
-# with a Llama fallback purely for availability.
+# Default failover order (best-first), in two tiers:
+#   Tier 1 — Gemma 4 31B, the primary voice, on every provider that hosts it.
+#   Tier 2 — gpt-oss-120b, the fallback: the one model ALL five providers host,
+#            so even a full Gemma outage still answers with a single consistent
+#            model. The fallback tier leads with providers not used in tier 1
+#            (Groq, Cloudflare), whose rate-limit budgets are still untouched.
 DEFAULT_ROUTE = [
+    # tier 1: Gemma 4 31B (primary)
     "cerebras:gemma-4-31b",
     "nvidia:google/gemma-4-31b-it",
     "openrouter:google/gemma-4-31b-it:free",
-    "cloudflare:@cf/google/gemma-4-26b-a4b-it",
-    "groq:llama-3.3-70b-versatile",
+    # tier 2: gpt-oss-120b (fallback, hosted everywhere)
+    "groq:openai/gpt-oss-120b",
+    "cloudflare:@cf/openai/gpt-oss-120b",
+    "cerebras:gpt-oss-120b",
+    "nvidia:openai/gpt-oss-120b",
+    "openrouter:openai/gpt-oss-120b:free",
 ]
 
 # If a full pass over the route fails (e.g. everything is momentarily limited),

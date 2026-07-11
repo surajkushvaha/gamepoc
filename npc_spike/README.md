@@ -50,11 +50,11 @@ error mid-session — so a hiccup can never wipe a conversation's memories.
 ## Setup
 
 1. **Get at least one free API key** (all no-credit-card):
-   - [Cerebras](https://cloud.cerebras.ai) — hosts Gemma 4 31B, very fast (recommended primary)
-   - [NVIDIA NIM](https://build.nvidia.com) — hosts Gemma 4 31B
-   - [OpenRouter](https://openrouter.ai) — hosts Gemma 4 31B as a `:free` model
-   - [Cloudflare Workers AI](https://dash.cloudflare.com) (needs token **and** account id)
-   - [Groq](https://console.groq.com) — no Gemma 4; Llama availability fallback
+   - [Cerebras](https://cloud.cerebras.ai) — Gemma 4 31B + gpt-oss-120b, very fast (recommended primary)
+   - [NVIDIA NIM](https://build.nvidia.com) — Gemma 4 31B + gpt-oss-120b
+   - [OpenRouter](https://openrouter.ai) — both as `:free` models
+   - [Groq](https://console.groq.com) — gpt-oss-120b fallback tier
+   - [Cloudflare Workers AI](https://dash.cloudflare.com) — gpt-oss-120b fallback tier (needs token **and** account id)
 
 2. **Install dependencies** (Python 3.10+):
    ```bash
@@ -76,16 +76,27 @@ rate-limits, errors, or returns empty output, it **immediately falls over to the
 next**. You only need one key to run, but adding several is what makes 429s a
 non-issue. Providers whose key is missing are skipped automatically.
 
-The default model is **Gemma 4 31B** everywhere it's hosted, so the NPC's voice
-stays consistent whichever provider answers:
+The default route has two tiers. **Gemma 4 31B** is the primary voice, tried on
+every provider that hosts it; **gpt-oss-120b** is the fallback — it's the one
+model *all five* providers host, so even a full Gemma outage still answers with
+a single consistent model:
 
 ```
-cerebras:gemma-4-31b
+tier 1 (primary — Gemma 4 31B)
+  cerebras:gemma-4-31b
   → nvidia:google/gemma-4-31b-it
   → openrouter:google/gemma-4-31b-it:free
-  → cloudflare:@cf/google/gemma-4-26b-a4b-it   (closest: CF only hosts the 26B-A4B variant)
-  → groq:llama-3.3-70b-versatile               (Groq has no Gemma 4; availability fallback)
+tier 2 (fallback — gpt-oss-120b, hosted everywhere)
+  → groq:openai/gpt-oss-120b
+  → cloudflare:@cf/openai/gpt-oss-120b
+  → cerebras:gpt-oss-120b
+  → nvidia:openai/gpt-oss-120b
+  → openrouter:openai/gpt-oss-120b:free
 ```
+
+The fallback tier leads with Groq and Cloudflare — the two providers not used in
+tier 1 — since their rate-limit budgets are still untouched when tier 1 is
+exhausted.
 
 Override it in `.env` (or the environment) with `NPC_AI_ROUTE`, using
 `provider:model` entries, best-first:
