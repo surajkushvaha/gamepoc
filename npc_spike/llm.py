@@ -8,8 +8,13 @@ model-selection logic lives in one place.
 
 import os
 import time
+from pathlib import Path
 
+from dotenv import load_dotenv
 from openai import OpenAI
+
+# Load local .env file from the project root when present.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # --- Model selection -------------------------------------------------------
 # The task pointed at llama-3.3-70b, but that model was deprecated on Cerebras
