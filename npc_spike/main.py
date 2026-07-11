@@ -8,7 +8,15 @@ The four core-loop steps from the spec are marked STEP 1-4 below.
 
 from llm import describe_route, get_client
 from memory import reflect, retrieve, summarize_turn
-from npc import NAME, SETTING_NAME, generate_reply
+from npc import (
+    FIRST_MEETING_NARRATION,
+    FIRST_MEETING_SCENE,
+    NAME,
+    RETURN_NARRATION,
+    RETURN_SCENE,
+    generate_opening,
+    generate_reply,
+)
 from storage import load_state, save_state
 
 # Only keep the last few turns of the *current* conversation in the prompt.
@@ -37,7 +45,7 @@ def print_debug(state):
     print("=" * 50 + "\n")
 
 
-def chat_loop(state, session_memories, conversation):
+def chat_loop(state, session_memories, conversation, scene):
     """The interactive loop. Returns when the player quits.
 
     A failed API call on a single turn is caught here so it doesn't kill the
@@ -67,7 +75,7 @@ def chat_loop(state, session_memories, conversation):
         conversation.append({"role": "user", "content": player_text})
         conversation[:] = conversation[-MAX_HISTORY_TURNS:]  # trim to stay lean
         try:
-            npc_text = generate_reply(state["beliefs"], memories, conversation)
+            npc_text = generate_reply(state["beliefs"], memories, conversation, scene)
         except Exception as err:  # noqa: BLE001 - keep the session alive
             conversation.pop()  # drop the turn we couldn't answer
             print(f"[Couldn't reach {NAME} right now: {err}]\n")
@@ -116,13 +124,30 @@ def main():
     mem_count, belief_count = len(state["memories"]), len(state["beliefs"])
     print(f"[Loaded {mem_count} memories, {belief_count} beliefs from previous sessions]")
     print(f"[AI providers (failover order): {', '.join(describe_route())}]")
-    print(f"You're in {SETTING_NAME}, talking with {NAME}.")
     print("Type '/memory' to inspect, 'quit' to leave.\n")
+
+    # --- Set the scene: how the player and Wren actually meet ---------------
+    # First-ever session = the first meeting (a stranger out of the rain).
+    # Any later session = a return visit, where Wren's memories set the tone.
+    first_meeting = mem_count == 0
+    scene = FIRST_MEETING_SCENE if first_meeting else RETURN_SCENE
+    print(FIRST_MEETING_NARRATION if first_meeting else RETURN_NARRATION)
+    print()
+
+    # Wren reacts to you walking in — a person speaks first; only a chatbot
+    # waits silently for input. On return visits this greeting is drawn from
+    # her memories, so cross-session recall is visible immediately.
+    try:
+        opening = generate_opening(state["beliefs"], retrieve(state), first_meeting)
+        conversation.append({"role": "assistant", "content": opening})
+        print(f"{NAME}> {opening}\n")
+    except Exception as err:  # noqa: BLE001 - a failed opening isn't fatal
+        print(f"[{NAME} glances up as you come in. ({err})]\n")
 
     # try/finally guarantees STEP 4 (reflect + save) runs even if the loop is
     # interrupted by Ctrl-C or an unrecoverable error mid-conversation.
     try:
-        chat_loop(state, session_memories, conversation)
+        chat_loop(state, session_memories, conversation, scene)
     except KeyboardInterrupt:
         print("\n[Interrupted]")
     finally:

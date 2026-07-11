@@ -92,16 +92,56 @@ def _format_beliefs(beliefs):
     return "\n".join(f"- {b['belief']}" for b in beliefs)
 
 
-def build_system_prompt(beliefs, memories):
-    """Assemble the system prompt: personality + beliefs + retrieved memories.
+# --- Meeting scenario --------------------------------------------------------
+# Without a defined encounter the player just "drops in" from nowhere — no
+# scene, no reason to be talking — and the conversation reads as a chatbot
+# session. These two scenes anchor every session in a concrete moment: how the
+# very first meeting happens, and how later meetings resume. The matching scene
+# is both PRINTED to the player as narration and INJECTED into Wren's prompt so
+# the two of you share the same picture.
+
+# What the PLAYER reads at the start of their very first session.
+FIRST_MEETING_NARRATION = """\
+Rain drives in hard off the sea as evening falls on Saltmere. You duck through
+the low door of the Gull's Rest, dripping wet, the only traveler in tonight.
+Behind the counter, someone with sharp eyes looks up from stacking mugs.
+That's Wren."""
+
+# The same moment, from WREN's point of view (goes into the system prompt).
+FIRST_MEETING_SCENE = f"""\
+It's a rainy evening and you're working the counter at the Gull's Rest. A
+stranger — a traveler, soaked through — just ducked in from the storm. You've
+NEVER seen this person before. You know nothing about them: not their name, not
+where they're from, not why they're in {SETTING_NAME}. Size them up like any
+stranger; be civil but don't hand a stranger your life story."""
+
+# What the PLAYER reads when they come back in a later session.
+RETURN_NARRATION = """\
+You push open the door of the Gull's Rest again. The smell of woodsmoke and
+salt. Wren is here, and looks up as you come in — recognition crosses their
+face."""
+
+# The same moment, from WREN's point of view.
+RETURN_SCENE = """\
+You're at the Gull's Rest and the person just walked in again — someone you've
+met before. Your memories and beliefs about them (below) are everything you know.
+React the way those memories deserve: warmer if things have been good between
+you, cooler if they've been careless with you."""
+
+
+def build_system_prompt(beliefs, memories, scene):
+    """Assemble the system prompt: personality + world + scene + beliefs + memories.
 
     This is the heart of the architecture test — the model only "knows" the
-    player through the beliefs and memories we choose to surface here.
+    player through the scene and the beliefs/memories we choose to surface here.
     """
     return f"""{PERSONALITY}
 
 --- The world you live in ---
 {WORLD}
+
+--- The current scene ---
+{scene}
 
 --- What you currently believe about this person ---
 {_format_beliefs(beliefs)}
@@ -113,7 +153,7 @@ Respond as {NAME}, staying true to your personality and everything above.
 """
 
 
-def generate_reply(beliefs, memories, conversation):
+def generate_reply(beliefs, memories, conversation, scene):
     """Generate Wren's next line.
 
     `conversation` is the recent back-and-forth of THIS session as a list of
@@ -121,8 +161,33 @@ def generate_reply(beliefs, memories, conversation):
     system prompt and let the model speak. The router picks whichever provider
     is available.
     """
-    messages = [{"role": "system", "content": build_system_prompt(beliefs, memories)}]
+    messages = [{"role": "system", "content": build_system_prompt(beliefs, memories, scene)}]
     messages.extend(conversation)
     # Short cap: a big token budget just invites the model to ramble into
     # assistant-style paragraphs. Wren speaks in a line or two.
     return chat(messages, max_completion_tokens=220, temperature=0.85)
+
+
+def generate_opening(beliefs, memories, first_meeting):
+    """Wren speaks FIRST when the player arrives — a person reacts to someone
+    walking in; only a chatbot waits silently for input.
+
+    On a first meeting that's a wary once-over of a stranger. On a return visit
+    it's a greeting drawn from her memories — which also makes the memory system
+    visible the moment a session starts.
+    """
+    scene = FIRST_MEETING_SCENE if first_meeting else RETURN_SCENE
+    nudge = (
+        "The stranger has just come through the door. Say your opening line — "
+        "a short, natural reaction to a soaked stranger walking in. Do not "
+        "interrogate them."
+        if first_meeting
+        else "They've just come through the door. Greet them the way your "
+        "memories of them deserve — reference something you remember if it "
+        "comes naturally."
+    )
+    messages = [
+        {"role": "system", "content": build_system_prompt(beliefs, memories, scene)},
+        {"role": "user", "content": f"({nudge})"},
+    ]
+    return chat(messages, max_completion_tokens=150, temperature=0.85)
