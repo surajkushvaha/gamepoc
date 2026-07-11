@@ -8,7 +8,7 @@ The four core-loop steps from the spec are marked STEP 1-4 below.
 
 from llm import get_client
 from memory import reflect, retrieve, summarize_turn
-from npc import NAME, generate_reply
+from npc import NAME, SETTING_NAME, generate_reply
 from storage import load_state, save_state
 
 # Only keep the last few turns of the *current* conversation in the prompt.
@@ -37,36 +37,23 @@ def print_debug(state):
     print("=" * 50 + "\n")
 
 
-def main():
-    client = get_client()
+def chat_loop(client, state, session_memories, conversation):
+    """The interactive loop. Returns when the player quits.
 
-    # --- STEP 1: on startup, load persisted state (or start empty) ---------
-    state = load_state()
-
-    # Memories created during THIS run — reflection at the end operates on these.
-    session_memories = []
-    # Recent turns of the current conversation, fed back into each reply.
-    conversation = []
-
-    mem_count, belief_count = len(state["memories"]), len(state["beliefs"])
-    print(f"[Loaded {mem_count} memories, {belief_count} beliefs from previous sessions]")
-    print(f"You're talking with {NAME}. Type '/memory' to inspect, 'quit' to leave.\n")
-
-    # --- STEP 2: the chat loop ---------------------------------------------
+    A failed API call on a single turn is caught here so it doesn't kill the
+    whole session (and lose everything unsaved) — we just report it and carry on.
+    """
     while True:
         try:
             player_text = input("you> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:  # Ctrl-D / piped input ending -> treat as quit
             print()
-            player_text = "quit"
+            return
 
         if not player_text:
             continue
-
-        # Exit path -> STEP 4 below.
         if player_text.lower() == "quit":
-            break
-
+            return
         # Debug command: does NOT count as a conversation turn.
         if player_text == "/memory":
             print_debug(state)
@@ -75,27 +62,69 @@ def main():
         # STEP 2 (retrieve): surface a small, relevant slice of memory + beliefs.
         memories = retrieve(state)
 
-        # STEP 2 (respond): build the prompt from personality + beliefs +
+        # STEP 2 (respond): build the prompt from personality + world + beliefs +
         # retrieved memories + recent conversation, then generate Wren's reply.
         conversation.append({"role": "user", "content": player_text})
         conversation[:] = conversation[-MAX_HISTORY_TURNS:]  # trim to stay lean
-        npc_text = generate_reply(client, state["beliefs"], memories, conversation)
+        try:
+            npc_text = generate_reply(client, state["beliefs"], memories, conversation)
+        except Exception as err:  # noqa: BLE001 - keep the session alive
+            conversation.pop()  # drop the turn we couldn't answer
+            print(f"[Couldn't reach {NAME} right now: {err}]\n")
+            continue
         conversation.append({"role": "assistant", "content": npc_text})
         conversation[:] = conversation[-MAX_HISTORY_TURNS:]
         print(f"{NAME}> {npc_text}\n")
 
-        # STEP 3: log a new memory summarizing what just happened.
-        memory_entry = summarize_turn(client, player_text, npc_text)
-        state["memories"].append(memory_entry)
-        session_memories.append(memory_entry)
+        # STEP 3: log a new memory summarizing what just happened. If this second
+        # call fails, we keep the conversation going rather than dropping it.
+        try:
+            memory_entry = summarize_turn(client, player_text, npc_text)
+            state["memories"].append(memory_entry)
+            session_memories.append(memory_entry)
+        except Exception as err:  # noqa: BLE001
+            print(f"[(couldn't log that memory: {err})]\n")
 
-    # --- STEP 4: on exit, reflect this session's memories into beliefs, save ---
+
+def finish(client, state, session_memories):
+    """STEP 4: reflect this session into beliefs, then ALWAYS save.
+
+    This runs in main()'s finally block, so memories persist no matter how the
+    session ended — clean quit, API crash, or Ctrl-C. Reflection is best-effort:
+    if it fails we still save the raw memories we collected.
+    """
     if session_memories:
         print(f"\n[{NAME} is reflecting on your conversation...]")
-        state["beliefs"] = reflect(client, state["beliefs"], session_memories)
-
+        try:
+            state["beliefs"] = reflect(client, state["beliefs"], session_memories)
+        except BaseException as err:  # noqa: BLE001 - never lose data over this
+            print(f"[Reflection skipped ({err}); memories still saved.]")
     save_state(state)
     print(f"[Saved. {NAME} will remember this next time.] Goodbye.")
+
+
+def main():
+    client = get_client()
+
+    # --- STEP 1: on startup, load persisted state (or start empty) ---------
+    state = load_state()
+
+    session_memories = []  # memories created THIS run; reflection operates on these
+    conversation = []      # recent turns fed back into each reply
+
+    mem_count, belief_count = len(state["memories"]), len(state["beliefs"])
+    print(f"[Loaded {mem_count} memories, {belief_count} beliefs from previous sessions]")
+    print(f"You're in {SETTING_NAME}, talking with {NAME}.")
+    print("Type '/memory' to inspect, 'quit' to leave.\n")
+
+    # try/finally guarantees STEP 4 (reflect + save) runs even if the loop is
+    # interrupted by Ctrl-C or an unrecoverable error mid-conversation.
+    try:
+        chat_loop(client, state, session_memories, conversation)
+    except KeyboardInterrupt:
+        print("\n[Interrupted]")
+    finally:
+        finish(client, state, session_memories)
 
 
 if __name__ == "__main__":

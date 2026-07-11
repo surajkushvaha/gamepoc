@@ -7,19 +7,41 @@ produces behavior that stays believable and consistent across sessions.
 
 from llm import chat
 
+# --- The shared world / setting --------------------------------------------
+# Without a defined world the model invents a new setting every reply (a coast
+# one turn, a modern coffee shop the next), which breaks immersion. Defining the
+# place once, here, keeps Wren and the player grounded in the SAME world. Edit
+# this block to re-skin the whole thing (different town, or a sci-fi/modern
+# setting) — it's the one knob that changes "where" the conversation happens.
+SETTING_NAME = "Saltmere"
+
+WORLD = f"""\
+The world is a low-fantasy realm of kingdoms, guilds, and wandering adventurers
+— sails and lanterns and a little old magic, no modern technology (no cars,
+phones, or coffee shops).
+
+You and this person are in {SETTING_NAME}, a weathered harbor town on the western
+edge of the kingdom of Aldermoor. {SETTING_NAME} has a crowded fishing dock, a
+handful of market stalls, a tavern called the Gull's Rest, and an old lighthouse
+above the cliffs. The coast road out of town winds inland toward the capital.
+Travelers and adventurers pass through often, chasing work, rumors, or passage
+by sea. You live here and know it well — stay grounded in THIS place, and don't
+invent anything that doesn't belong in this world."""
+
 # --- Personality template (the one thing we hardcode) ----------------------
 # A relationship-oriented companion: warm, attentive, forms attachments, and
 # shifts their opinion of the player based on how they're treated.
 NAME = "Wren"
 
 PERSONALITY = f"""\
-You are {NAME}, a person (not an AI assistant) talking with someone you know.
+You are {NAME}, a person (not an AI assistant) who lives in {SETTING_NAME}.
 
-Backstory: {NAME} grew up in a quiet harbor town, keeping the lighthouse with
-their grandmother after their parents drifted away. That upbringing left {NAME}
-comfortable with solitude but quietly hungry for genuine connection. {NAME} left
-the coast a year ago and now drifts between odd jobs, meeting people and hoping
-one of them sticks around.
+Backstory: {NAME} grew up in {SETTING_NAME}, keeping the cliffside lighthouse
+with their grandmother after their parents were lost at sea. That upbringing left
+{NAME} comfortable with solitude but quietly hungry for genuine connection. These
+days {NAME} still lives in town, picking up odd jobs around the harbor and the
+Gull's Rest, meeting the travelers who pass through and hoping one of them sticks
+around.
 
 Core traits and values:
 - Warm underneath, but guarded on the surface: closeness has to be earned. With
@@ -77,6 +99,9 @@ def build_system_prompt(beliefs, memories):
     player through the beliefs and memories we choose to surface here.
     """
     return f"""{PERSONALITY}
+
+--- The world you live in ---
+{WORLD}
 
 --- What you currently believe about this person ---
 {_format_beliefs(beliefs)}

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 
 # Load local .env file from the project root when present.
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -32,7 +32,12 @@ _BACKOFF_SCHEDULE = [2, 4, 8, 16]
 
 
 def get_client():
-    """Build an OpenAI-compatible client pointed at Cerebras."""
+    """Build an OpenAI-compatible client pointed at Cerebras.
+
+    max_retries=0 turns off the SDK's *own* silent retry loop so our backoff in
+    chat() is the single, visible authority on rate limits — otherwise the two
+    fight each other and a 429 just looks like a long hang before crashing.
+    """
     api_key = os.environ.get("CEREBRAS_API_KEY")
     if not api_key:
         raise SystemExit(
@@ -40,21 +45,27 @@ def get_client():
             "https://cloud.cerebras.ai and run:\n"
             "    export CEREBRAS_API_KEY=your_key_here"
         )
-    return OpenAI(api_key=api_key, base_url=BASE_URL)
+    return OpenAI(api_key=api_key, base_url=BASE_URL, max_retries=0)
 
 
-def _is_rate_limit(err: Exception) -> bool:
-    """Best-effort detection of a 429 across openai SDK versions."""
-    status = getattr(err, "status_code", None) or getattr(err, "code", None)
-    if status == 429:
-        return True
-    return "rate limit" in str(err).lower() or "429" in str(err)
+def _retry_after_seconds(err, fallback):
+    """Prefer the server's Retry-After header over our guess, when present."""
+    resp = getattr(err, "response", None)
+    headers = getattr(resp, "headers", None) or {}
+    value = headers.get("retry-after") or headers.get("Retry-After")
+    try:
+        return max(float(value), fallback)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def chat(client, messages, max_completion_tokens=512, temperature=0.8):
-    """Call chat completions with simple exponential backoff on rate limits.
+    """Call chat completions, retrying on rate limits / transient network errors.
 
-    Returns the assistant message content as a plain string.
+    Returns the assistant message content as a plain string. On a 429 we wait —
+    honoring the server's Retry-After if it sends one — then try again, so a
+    burst against the free tier's ~30 req/min limit self-heals instead of
+    crashing the conversation.
     """
     for attempt in range(len(_BACKOFF_SCHEDULE) + 1):
         try:
@@ -65,10 +76,13 @@ def chat(client, messages, max_completion_tokens=512, temperature=0.8):
                 temperature=temperature,
             )
             return resp.choices[0].message.content.strip()
-        except Exception as err:  # noqa: BLE001 - prototype: keep it simple
-            if attempt < len(_BACKOFF_SCHEDULE) and _is_rate_limit(err):
-                wait = _BACKOFF_SCHEDULE[attempt]
-                print(f"[rate limited, retrying in {wait}s...]")
-                time.sleep(wait)
-                continue
-            raise
+        except (RateLimitError, APIConnectionError, APITimeoutError) as err:
+            if attempt >= len(_BACKOFF_SCHEDULE):
+                raise
+            wait = _BACKOFF_SCHEDULE[attempt]
+            if isinstance(err, RateLimitError):
+                wait = _retry_after_seconds(err, wait)
+                print(f"[rate limited — waiting {wait:.0f}s before retrying...]")
+            else:
+                print(f"[connection hiccup — retrying in {wait}s...]")
+            time.sleep(wait)

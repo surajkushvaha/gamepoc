@@ -36,6 +36,17 @@ The loop, per the spec:
 No embeddings or vector DB — a recency + importance sort is enough at this scale,
 and it keeps prompts under the free tier's ~8k-token context cap.
 
+## The world / setting
+
+Wren and the player share one defined setting — **Saltmere**, a harbor town in a
+low-fantasy kingdom — so Wren stays grounded in a consistent place instead of
+inventing a new one each reply. It's a single editable block (`WORLD` /
+`SETTING_NAME`) at the top of `npc.py`; rewrite it to re-skin the whole thing
+(different town, or a modern/sci-fi setting) and Wren follows.
+
+State is also saved on *every* exit path now — clean `quit`, `Ctrl-C`, or an API
+error mid-session — so a hiccup can never wipe a conversation's memories.
+
 ## Setup
 
 1. **Get a free Cerebras API key** (no credit card): sign up at
