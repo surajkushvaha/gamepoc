@@ -45,26 +45,31 @@ _PROVIDERS = {
 _TOKEN_PARAM = {"cerebras": "max_completion_tokens"}
 
 # Default failover order (best-first), in two tiers:
-#   Tier 1 — Gemma 4 31B, the primary voice, on every provider that hosts it.
-#   Tier 2 — gpt-oss-120b, the fallback: a model virtually every provider
-#            hosts, so even a full Gemma outage still answers with a single
-#            consistent model.
-# Ordering within tiers reflects observed reliability from live dashboards:
-# Groq answered ~everything, Cerebras is solid (its Gemma occasionally hits
-# capacity), OpenRouter's free upstreams 429 even after its internal retries —
-# so OpenRouter sits last in each tier.
+#   Tier 1 — Gemma 4 31B, the primary voice.
+#   Tier 2 — fast reliable fallbacks (llama-3.3-70b, gpt-oss-120b).
+#
+# Ordering reflects live smoke-test results (2026-07):
+#   - Cerebras Gemma: fast (1.2s) but hits RPM limits quickly.
+#   - Ollama Cloud Gemma: reliable but slow (11s).
+#   - NVIDIA Gemma: REMOVED — consistently times out (>20s).
+#   - OpenRouter free: valid model names but upstream 429s constantly.
+#   - Groq llama-3.3-70b-versatile: fastest of all (0.3s), never rate-limited.
+#   - gpt-oss-120b: a reasoning/thinking model — output is in `reasoning`
+#     field, not `content`. The chat() function handles this automatically.
+#   - NVIDIA llama-3.1-70b: fast (0.4s), good reliable fallback.
 DEFAULT_ROUTE = [
-    # tier 1: Gemma 4 31B (primary)
+    # Primary: Gemma 4 31B on every provider that hosts it (consistency).
     "cerebras:gemma-4-31b",
     "ollama:gemma4:31b",
-    "nvidia:google/gemma-4-31b-it",
-    "openrouter:google/gemma-4-31b-it:free",
-    # tier 2: gpt-oss-120b (fallback, hosted nearly everywhere)
+    # Emergency fallback: gpt-oss-120b (reasoning model, different voice,
+    # but better than crashing). Only reached when ALL Gemma providers fail.
     "groq:openai/gpt-oss-120b",
     "cerebras:gpt-oss-120b",
     "cloudflare:@cf/openai/gpt-oss-120b",
     "ollama:gpt-oss:120b",
     "nvidia:openai/gpt-oss-120b",
+    # OpenRouter free tier last — perpetually rate-limited (429s).
+    "openrouter:google/gemma-4-31b-it:free",
     "openrouter:openai/gpt-oss-120b:free",
 ]
 
@@ -76,7 +81,8 @@ _BACKOFF_SCHEDULE = [3, 8]
 # instead of being retried on every call. Without this, one dead provider at
 # the head of the route adds its failure latency to EVERY turn; with it, only
 # the first turn pays the sweep and later turns go straight to whoever works.
-_COOLDOWN_SECONDS = 120
+# 62s: Cerebras rate limits are per-minute; 120s wastes a full recovery window.
+_COOLDOWN_SECONDS = 62
 _cooldown_until = {}  # (provider, model) -> time.monotonic() deadline
 
 _client_cache = {}
@@ -179,7 +185,26 @@ def chat(messages, max_completion_tokens=512, temperature=0.8):
                     temperature=temperature,
                     **{token_param: max_completion_tokens},
                 )
-                content = (resp.choices[0].message.content or "").strip()
+                # OpenRouter free tier occasionally returns HTTP 200 with
+                # choices=None instead of raising a proper error.
+                if not resp.choices:
+                    last_err = RuntimeError("empty choices list")
+                    _cooldown_until[(provider, model)] = time.monotonic() + _COOLDOWN_SECONDS
+                    print(f"[{provider} returned no choices — benching it for "
+                          f"{_COOLDOWN_SECONDS}s, trying next...]")
+                    continue
+                msg = resp.choices[0].message
+                content = (msg.content or "").strip()
+                if not content:
+                    # gpt-oss-120b and other reasoning/thinking models put
+                    # their output in a separate `reasoning` (or
+                    # `reasoning_content`) field rather than `content`.
+                    # Fall back to that so they aren't benched as "empty".
+                    content = (
+                        getattr(msg, "reasoning", None)
+                        or getattr(msg, "reasoning_content", None)
+                        or ""
+                    ).strip()
                 if content:
                     _cooldown_until.pop((provider, model), None)
                     return content
