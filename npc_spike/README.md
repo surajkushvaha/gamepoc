@@ -124,8 +124,11 @@ NPC_AI_ROUTE=cerebras:gemma-4-31b, openrouter:google/gemma-4-31b-it:free
 ```
 
 The active route is printed at startup, and each failover logs which provider it
-skipped and why. Supported provider keys: `groq`, `cerebras`, `nvidia`,
-`openrouter`, `cloudflare`.
+skipped and why. A provider that fails is **benched for 2 minutes** (circuit
+breaker) so only the first turn pays the failover sweep — later turns go
+straight to whoever is answering. Requests time out after 15s so one hung
+provider can't stall a turn. Supported provider keys: `groq`, `cerebras`,
+`nvidia`, `openrouter`, `cloudflare`.
 
 ## Testing the memory across sessions
 

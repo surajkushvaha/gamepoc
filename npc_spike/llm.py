@@ -59,6 +59,13 @@ DEFAULT_ROUTE = [
 # wait and try the whole route again along this schedule before giving up.
 _BACKOFF_SCHEDULE = [3, 8]
 
+# Circuit breaker: an entry that just failed sits out for this many seconds
+# instead of being retried on every call. Without this, one dead provider at
+# the head of the route adds its failure latency to EVERY turn; with it, only
+# the first turn pays the sweep and later turns go straight to whoever works.
+_COOLDOWN_SECONDS = 120
+_cooldown_until = {}  # (provider, model) -> time.monotonic() deadline
+
 _client_cache = {}
 
 
@@ -78,8 +85,9 @@ def _client_for(provider):
             return None  # Cloudflare needs the account id too
         base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
     # max_retries=0: the router handles retries/failover, so the SDK shouldn't
-    # silently retry. timeout keeps a hung provider from stalling the whole app.
-    client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=60)
+    # silently retry. Short timeout: healthy providers answer in a couple of
+    # seconds; a hung one must not stall the conversation for a minute.
+    client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=15)
     _client_cache[provider] = client
     return client
 
@@ -140,7 +148,14 @@ def chat(messages, max_completion_tokens=512, temperature=0.8):
 
     last_err = None
     for pass_index in range(len(_BACKOFF_SCHEDULE) + 1):
-        for provider, model in route:
+        # Skip entries that recently failed (still cooling down) — unless that
+        # leaves nothing, in which case try everyone anyway rather than fail.
+        now = time.monotonic()
+        candidates = [e for e in route if _cooldown_until.get(e, 0.0) <= now]
+        if not candidates:
+            candidates = route
+
+        for provider, model in candidates:
             client = _client_for(provider)
             token_param = _TOKEN_PARAM.get(provider, "max_tokens")
             try:
@@ -152,13 +167,18 @@ def chat(messages, max_completion_tokens=512, temperature=0.8):
                 )
                 content = (resp.choices[0].message.content or "").strip()
                 if content:
+                    _cooldown_until.pop((provider, model), None)
                     return content
                 last_err = RuntimeError("empty output")
-                print(f"[{provider} returned nothing, trying next provider...]")
+                _cooldown_until[(provider, model)] = time.monotonic() + _COOLDOWN_SECONDS
+                print(f"[{provider} returned nothing — benching it for "
+                      f"{_COOLDOWN_SECONDS}s, trying next...]")
             except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as err:
                 last_err = err
+                _cooldown_until[(provider, model)] = time.monotonic() + _COOLDOWN_SECONDS
                 tag = "rate limited" if isinstance(err, RateLimitError) else "unavailable"
-                print(f"[{provider} {tag} ({_short(err)}), trying next provider...]")
+                print(f"[{provider} {tag} — benching it for {_COOLDOWN_SECONDS}s, "
+                      f"trying next... ({_short(err)})]")
 
         # Whole route exhausted this pass; back off and try again if we can.
         if pass_index < len(_BACKOFF_SCHEDULE):
