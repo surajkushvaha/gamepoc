@@ -2,6 +2,11 @@
 # every tester starts from a clean slate.
 data/state.json
 
+# Secrets: real API keys live only in a local .env, never in git.
+.env
+.env.*
+!.env.example
+
 __pycache__/
 *.pyc
 .venv/

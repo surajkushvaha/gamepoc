@@ -113,15 +113,16 @@ Respond as {NAME}, staying true to your personality and everything above.
 """
 
 
-def generate_reply(client, beliefs, memories, conversation):
+def generate_reply(beliefs, memories, conversation):
     """Generate Wren's next line.
 
     `conversation` is the recent back-and-forth of THIS session as a list of
     {"role": "user"|"assistant", "content": str}. We prepend the personality
-    system prompt and let the model speak.
+    system prompt and let the model speak. The router picks whichever provider
+    is available.
     """
     messages = [{"role": "system", "content": build_system_prompt(beliefs, memories)}]
     messages.extend(conversation)
     # Short cap: a big token budget just invites the model to ramble into
     # assistant-style paragraphs. Wren speaks in a line or two.
-    return chat(client, messages, max_completion_tokens=220, temperature=0.85)
+    return chat(messages, max_completion_tokens=220, temperature=0.85)

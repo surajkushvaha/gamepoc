@@ -58,7 +58,7 @@ def retrieve(state):
 
 
 # --- STEP 3 (log a memory after each turn) ---------------------------------
-def summarize_turn(client, player_text, npc_text):
+def summarize_turn(player_text, npc_text):
     """Ask the model to summarize the exchange into a structured memory entry.
 
     A second lightweight call: we ask for a small JSON block describing what
@@ -77,7 +77,6 @@ Person said: {player_text!r}
 Wren replied: {npc_text!r}
 """
     raw = chat(
-        client,
         [{"role": "user", "content": prompt}],
         max_completion_tokens=200,
         temperature=0.3,  # low temp: we want reliable, parseable structure
@@ -106,7 +105,7 @@ Wren replied: {npc_text!r}
 
 
 # --- STEP 4 (reflect on exit) ----------------------------------------------
-def reflect(client, existing_beliefs, session_memories):
+def reflect(existing_beliefs, session_memories):
     """Turn this session's memories into 1-3 updated beliefs about the player.
 
     Reflection is what lets Wren's *opinion* evolve rather than just accumulating
@@ -138,7 +137,6 @@ What happened this session:
 {events}
 """
     raw = chat(
-        client,
         [{"role": "user", "content": prompt}],
         max_completion_tokens=300,
         temperature=0.4,

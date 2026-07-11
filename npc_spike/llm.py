@@ -1,9 +1,14 @@
-"""Thin wrapper around the Cerebras chat-completions endpoint.
+"""Multi-provider LLM router (availability-aware failover).
 
-Cerebras exposes an OpenAI-compatible API, so we just point the official
-`openai` client at Cerebras' base URL. Everything else in the spike talks to
-the model through the single `chat()` helper here so the retry/backoff and
-model-selection logic lives in one place.
+The free tiers we use rate-limit aggressively, so relying on a single provider
+means constant 429s. Instead we keep an ordered list of providers and, on each
+call, try them best-first: if one rate-limits, errors, or returns empty output,
+we immediately fall over to the next. Every provider here is OpenAI-compatible,
+so a single `openai` client works for all of them — only the base URL, API key,
+and model name change.
+
+Configure keys in a local `.env` (git-ignored). Set at least one; the router
+skips any provider whose key is missing. Override the order with NPC_AI_ROUTE.
 """
 
 import os
@@ -11,78 +16,146 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
+from openai import APIConnectionError, APIError, APITimeoutError, OpenAI, RateLimitError
 
 # Load local .env file from the project root when present.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-# --- Model selection -------------------------------------------------------
-# The task pointed at llama-3.3-70b, but that model was deprecated on Cerebras
-# in Feb 2026. Its official replacement is `gpt-oss-120b` (open-weight, Apache
-# 2.0), which is what we default to. Kept in an env var so it's a one-line swap
-# when the catalog changes again: https://inference-docs.cerebras.ai/models
-DEFAULT_MODEL = "gpt-oss-120b"
-MODEL = os.environ.get("CEREBRAS_MODEL", DEFAULT_MODEL)
+# --- Provider registry -----------------------------------------------------
+# name -> (OpenAI-compatible base URL, env var holding the key).
+# Cloudflare's base URL is templated with the account id, filled in below.
+_PROVIDERS = {
+    "cerebras":   ("https://api.cerebras.ai/v1",        "CEREBRAS_API_KEY"),
+    "groq":       ("https://api.groq.com/openai/v1",    "GROQ_API_KEY"),
+    "nvidia":     ("https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1",      "OPENROUTER_API_KEY"),
+    "cloudflare": ("__cloudflare__",                    "CLOUDFLARE_API_TOKEN"),
+}
 
-BASE_URL = "https://api.cerebras.ai/v1"
+# gpt-oss on Cerebras wants the newer `max_completion_tokens`; every other
+# provider here still expects the classic `max_tokens`.
+_TOKEN_PARAM = {"cerebras": "max_completion_tokens"}
 
-# Free tier is ~30 requests/minute. If we trip that limit we get HTTP 429;
-# back off along this schedule (seconds) rather than crashing mid-conversation.
-_BACKOFF_SCHEDULE = [2, 4, 8, 16]
+# Default failover order (best-first). Groq is fast with a generous free tier,
+# so it leads; the rest are backups. All are ~llama-3.3-70b-class instruct
+# models so behavior stays consistent whichever one answers.
+DEFAULT_ROUTE = [
+    "groq:llama-3.3-70b-versatile",
+    "cerebras:gpt-oss-120b",
+    "nvidia:meta/llama-3.3-70b-instruct",
+    "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "openrouter:meta-llama/llama-3.3-70b-instruct:free",
+]
+
+# If a full pass over the route fails (e.g. everything is momentarily limited),
+# wait and try the whole route again along this schedule before giving up.
+_BACKOFF_SCHEDULE = [3, 8]
+
+_client_cache = {}
+
+
+def _client_for(provider):
+    """Return a cached OpenAI client for a provider, or None if unconfigured."""
+    if provider in _client_cache:
+        return _client_cache[provider]
+    if provider not in _PROVIDERS:
+        return None
+    base_url, key_env = _PROVIDERS[provider]
+    api_key = os.environ.get(key_env)
+    if not api_key:
+        return None
+    if provider == "cloudflare":
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if not account_id:
+            return None  # Cloudflare needs the account id too
+        base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+    # max_retries=0: the router handles retries/failover, so the SDK shouldn't
+    # silently retry. timeout keeps a hung provider from stalling the whole app.
+    client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=60)
+    _client_cache[provider] = client
+    return client
+
+
+def _parse_route():
+    """Build the active route from NPC_AI_ROUTE (or the default), dropping any
+    provider whose key isn't configured."""
+    raw = os.environ.get("NPC_AI_ROUTE")
+    specs = [s.strip() for s in raw.split(",")] if raw else DEFAULT_ROUTE
+    route = []
+    for spec in specs:
+        if ":" not in spec:
+            continue
+        provider, model = spec.split(":", 1)  # split once: models can contain ':'
+        provider, model = provider.strip().lower(), model.strip()
+        if _client_for(provider) is not None:
+            route.append((provider, model))
+    return route
+
+
+def describe_route():
+    """Human-readable 'provider:model' list for the active route (for startup)."""
+    return [f"{p}:{m}" for p, m in _parse_route()]
 
 
 def get_client():
-    """Build an OpenAI-compatible client pointed at Cerebras.
+    """Validate that at least one provider is configured; return the route.
 
-    max_retries=0 turns off the SDK's *own* silent retry loop so our backoff in
-    chat() is the single, visible authority on rate limits — otherwise the two
-    fight each other and a 429 just looks like a long hang before crashing.
+    Kept named get_client() so main.py's startup check reads naturally. Raises
+    with a helpful message if no keys are set.
     """
-    api_key = os.environ.get("CEREBRAS_API_KEY")
-    if not api_key:
+    route = _parse_route()
+    if not route:
         raise SystemExit(
-            "CEREBRAS_API_KEY is not set. Grab a free key at "
-            "https://cloud.cerebras.ai and run:\n"
-            "    export CEREBRAS_API_KEY=your_key_here"
+            "No AI providers configured. Copy .env.example to .env and set at "
+            "least one key (CEREBRAS_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, "
+            "NVIDIA_NIM_API_KEY, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID)."
         )
-    return OpenAI(api_key=api_key, base_url=BASE_URL, max_retries=0)
+    return route
 
 
-def _retry_after_seconds(err, fallback):
-    """Prefer the server's Retry-After header over our guess, when present."""
-    resp = getattr(err, "response", None)
-    headers = getattr(resp, "headers", None) or {}
-    value = headers.get("retry-after") or headers.get("Retry-After")
-    try:
-        return max(float(value), fallback)
-    except (TypeError, ValueError):
-        return fallback
+def _short(err):
+    """A compact one-line reason for logging a provider failure."""
+    text = str(err).strip().replace("\n", " ")
+    return (text[:120] + "...") if len(text) > 120 else text or type(err).__name__
 
 
-def chat(client, messages, max_completion_tokens=512, temperature=0.8):
-    """Call chat completions, retrying on rate limits / transient network errors.
+def chat(messages, max_completion_tokens=512, temperature=0.8):
+    """Send a chat request, failing over across providers until one answers.
 
-    Returns the assistant message content as a plain string. On a 429 we wait —
-    honoring the server's Retry-After if it sends one — then try again, so a
-    burst against the free tier's ~30 req/min limit self-heals instead of
-    crashing the conversation.
+    Returns the assistant message content as a plain string. Tries each provider
+    in the route once; on rate-limit/error/empty output it moves to the next. If
+    an entire pass fails, it waits (see _BACKOFF_SCHEDULE) and retries the route.
     """
-    for attempt in range(len(_BACKOFF_SCHEDULE) + 1):
-        try:
-            resp = client.chat.completions.create(
-                model=MODEL,
-                messages=messages,
-                max_completion_tokens=max_completion_tokens,
-                temperature=temperature,
-            )
-            return resp.choices[0].message.content.strip()
-        except (RateLimitError, APIConnectionError, APITimeoutError) as err:
-            if attempt >= len(_BACKOFF_SCHEDULE):
-                raise
-            wait = _BACKOFF_SCHEDULE[attempt]
-            if isinstance(err, RateLimitError):
-                wait = _retry_after_seconds(err, wait)
-                print(f"[rate limited — waiting {wait:.0f}s before retrying...]")
-            else:
-                print(f"[connection hiccup — retrying in {wait}s...]")
+    route = _parse_route()
+    if not route:
+        raise SystemExit("No AI providers configured (see .env.example).")
+
+    last_err = None
+    for pass_index in range(len(_BACKOFF_SCHEDULE) + 1):
+        for provider, model in route:
+            client = _client_for(provider)
+            token_param = _TOKEN_PARAM.get(provider, "max_tokens")
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    **{token_param: max_completion_tokens},
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                if content:
+                    return content
+                last_err = RuntimeError("empty output")
+                print(f"[{provider} returned nothing, trying next provider...]")
+            except (RateLimitError, APIConnectionError, APITimeoutError, APIError) as err:
+                last_err = err
+                tag = "rate limited" if isinstance(err, RateLimitError) else "unavailable"
+                print(f"[{provider} {tag} ({_short(err)}), trying next provider...]")
+
+        # Whole route exhausted this pass; back off and try again if we can.
+        if pass_index < len(_BACKOFF_SCHEDULE):
+            wait = _BACKOFF_SCHEDULE[pass_index]
+            print(f"[all providers busy — waiting {wait}s before retrying...]")
             time.sleep(wait)
+
+    raise RuntimeError(f"All providers failed. Last error: {_short(last_err)}")

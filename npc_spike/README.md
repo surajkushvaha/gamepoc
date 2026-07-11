@@ -17,7 +17,7 @@ npc_spike/
   npc.py       # Wren's personality template + reply generation
   memory.py    # retrieval (recency + importance), per-turn memory logging, reflection
   storage.py   # load/save state to a single JSON file
-  llm.py       # Cerebras client wrapper + rate-limit backoff
+  llm.py       # multi-provider LLM router with availability-aware failover
   data/
     state.json # persisted memories + beliefs (created on first run)
 ```
@@ -49,38 +49,54 @@ error mid-session — so a hiccup can never wipe a conversation's memories.
 
 ## Setup
 
-1. **Get a free Cerebras API key** (no credit card): sign up at
-   [cloud.cerebras.ai](https://cloud.cerebras.ai), generate a key.
+1. **Get at least one free API key** (all no-credit-card):
+   - [Groq](https://console.groq.com) — fast, generous free tier (recommended primary)
+   - [Cerebras](https://cloud.cerebras.ai)
+   - [OpenRouter](https://openrouter.ai) (use a `:free` model)
+   - [NVIDIA NIM](https://build.nvidia.com)
+   - [Cloudflare Workers AI](https://dash.cloudflare.com) (needs token **and** account id)
 
-2. **Install the dependency** (Python 3.10+):
+2. **Install dependencies** (Python 3.10+):
    ```bash
    cd npc_spike
    pip install -r requirements.txt
    ```
 
-3. **Set your key:**
+3. **Create your `.env`:** copy the template and fill in the keys you have.
    ```bash
-   export CEREBRAS_API_KEY=your_key_here
+   cp .env.example .env      # then edit .env
    ```
+   `.env` is git-ignored — keys never get committed.
 
-### Model choice
+### Multi-provider failover (this is the rate-limit fix)
 
-The spec suggested `llama-3.3-70b`, but Cerebras **deprecated that model in Feb
-2026**. This spike defaults to **`gpt-oss-120b`** — Cerebras' own recommended
-replacement, open-weight (Apache 2.0) and available on the free tier. It's held
-in an env var so it's trivial to swap when the catalog changes again (check the
-[current catalog](https://inference-docs.cerebras.ai/models/overview)):
+Single free-tier providers rate-limit (HTTP 429) constantly. Instead of one
+provider, `llm.py` keeps an **ordered route** and tries them best-first: if one
+rate-limits, errors, or returns empty output, it **immediately falls over to the
+next**. You only need one key to run, but adding several is what makes 429s a
+non-issue. Providers whose key is missing are skipped automatically.
 
-```bash
-export CEREBRAS_MODEL=some-other-model-id   # optional override
+Default order (all ~llama-3.3-70b-class instruct models, so behavior stays
+consistent whichever answers):
+
+```
+groq → cerebras → nvidia → cloudflare → openrouter
 ```
 
-### Free-tier notes
+Override it in `.env` (or the environment) with `NPC_AI_ROUTE`, using
+`provider:model` entries, best-first:
 
-Roughly 1M tokens/day, 30 requests/minute, ~8k-token context. Each player turn
-makes 2 API calls (reply + memory summary), and `quit` makes 1 more (reflect).
-If you hit the rate limit, `llm.py` retries with exponential backoff (2/4/8/16s)
-instead of crashing.
+```bash
+NPC_AI_ROUTE=groq:llama-3.3-70b-versatile, cerebras:gpt-oss-120b, openrouter:meta-llama/llama-3.3-70b-instruct:free
+```
+
+The active route is printed at startup, and each failover logs which provider it
+skipped and why. Supported provider keys: `groq`, `cerebras`, `nvidia`,
+`openrouter`, `cloudflare`.
+
+> Note: Cerebras deprecated `llama-3.3-70b` in Feb 2026, so its entry uses
+> `gpt-oss-120b` (its recommended open-weight replacement). The other providers
+> still serve a real Llama 3.3 70B.
 
 ## Testing the memory across sessions
 
