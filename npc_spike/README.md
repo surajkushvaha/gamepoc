@@ -69,6 +69,7 @@ error mid-session — so a hiccup can never wipe a conversation's memories.
 
 1. **Get at least one free API key** (all no-credit-card):
    - [Cerebras](https://cloud.cerebras.ai) — Gemma 4 31B + gpt-oss-120b, very fast (recommended primary)
+   - [Ollama Cloud](https://ollama.com) — gemma4:31b + gpt-oss:120b (key under Settings → API Keys)
    - [NVIDIA NIM](https://build.nvidia.com) — Gemma 4 31B + gpt-oss-120b
    - [OpenRouter](https://openrouter.ai) — both as `:free` models
    - [Groq](https://console.groq.com) — gpt-oss-120b fallback tier
@@ -102,19 +103,21 @@ a single consistent model:
 ```
 tier 1 (primary — Gemma 4 31B)
   cerebras:gemma-4-31b
+  → ollama:gemma4:31b
   → nvidia:google/gemma-4-31b-it
   → openrouter:google/gemma-4-31b-it:free
-tier 2 (fallback — gpt-oss-120b, hosted everywhere)
+tier 2 (fallback — gpt-oss-120b, hosted nearly everywhere)
   → groq:openai/gpt-oss-120b
-  → cloudflare:@cf/openai/gpt-oss-120b
   → cerebras:gpt-oss-120b
+  → cloudflare:@cf/openai/gpt-oss-120b
+  → ollama:gpt-oss:120b
   → nvidia:openai/gpt-oss-120b
   → openrouter:openai/gpt-oss-120b:free
 ```
 
-The fallback tier leads with Groq and Cloudflare — the two providers not used in
-tier 1 — since their rate-limit budgets are still untouched when tier 1 is
-exhausted.
+Ordering within tiers reflects observed reliability: Groq answers nearly
+everything, Cerebras is solid (its Gemma occasionally hits capacity), and
+OpenRouter's free upstreams saturate often — so it sits last in each tier.
 
 Override it in `.env` (or the environment) with `NPC_AI_ROUTE`, using
 `provider:model` entries, best-first:

@@ -30,6 +30,10 @@ _PROVIDERS = {
     "nvidia":     ("https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1",      "OPENROUTER_API_KEY"),
     "cloudflare": ("__cloudflare__",                    "CLOUDFLARE_API_TOKEN"),
+    # Ollama Cloud (ollama.com account key). Model names keep Ollama's own
+    # "name:tag" form, e.g. gemma4:31b — the route parser splits provider from
+    # model on the FIRST colon only, so those tags survive intact.
+    "ollama":     ("https://ollama.com/v1",             "OLLAMA_API_KEY"),
 }
 
 # Cerebras' API prefers the newer `max_completion_tokens`; every other
@@ -38,19 +42,24 @@ _TOKEN_PARAM = {"cerebras": "max_completion_tokens"}
 
 # Default failover order (best-first), in two tiers:
 #   Tier 1 — Gemma 4 31B, the primary voice, on every provider that hosts it.
-#   Tier 2 — gpt-oss-120b, the fallback: the one model ALL five providers host,
-#            so even a full Gemma outage still answers with a single consistent
-#            model. The fallback tier leads with providers not used in tier 1
-#            (Groq, Cloudflare), whose rate-limit budgets are still untouched.
+#   Tier 2 — gpt-oss-120b, the fallback: a model virtually every provider
+#            hosts, so even a full Gemma outage still answers with a single
+#            consistent model.
+# Ordering within tiers reflects observed reliability from live dashboards:
+# Groq answered ~everything, Cerebras is solid (its Gemma occasionally hits
+# capacity), OpenRouter's free upstreams 429 even after its internal retries —
+# so OpenRouter sits last in each tier.
 DEFAULT_ROUTE = [
     # tier 1: Gemma 4 31B (primary)
     "cerebras:gemma-4-31b",
+    "ollama:gemma4:31b",
     "nvidia:google/gemma-4-31b-it",
     "openrouter:google/gemma-4-31b-it:free",
-    # tier 2: gpt-oss-120b (fallback, hosted everywhere)
+    # tier 2: gpt-oss-120b (fallback, hosted nearly everywhere)
     "groq:openai/gpt-oss-120b",
-    "cloudflare:@cf/openai/gpt-oss-120b",
     "cerebras:gpt-oss-120b",
+    "cloudflare:@cf/openai/gpt-oss-120b",
+    "ollama:gpt-oss:120b",
     "nvidia:openai/gpt-oss-120b",
     "openrouter:openai/gpt-oss-120b:free",
 ]
@@ -123,8 +132,9 @@ def get_client():
     if not route:
         raise SystemExit(
             "No AI providers configured. Copy .env.example to .env and set at "
-            "least one key (CEREBRAS_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, "
-            "NVIDIA_NIM_API_KEY, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID)."
+            "least one key (CEREBRAS_API_KEY, GROQ_API_KEY, OLLAMA_API_KEY, "
+            "OPENROUTER_API_KEY, NVIDIA_NIM_API_KEY, or CLOUDFLARE_API_TOKEN "
+            "+ CLOUDFLARE_ACCOUNT_ID)."
         )
     return route
 
