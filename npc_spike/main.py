@@ -108,11 +108,16 @@ def greet(state, npc_id, conversations):
 def handle_go(state, arg, conversations):
     """/go <place>: move along an exit; the walk is narrated, not scripted."""
     here = state["player"]["location"]
-    target = arg.strip().lower().replace(" ", "_")
+    raw = arg.strip().lower().replace("'", "")
+    target_id = raw.replace(" ", "_")        # e.g. "the_gulls_rest"
+    target_name = raw                         # e.g. "the gulls rest"
     # Accept both ids ("gulls_rest") and loose names ("gulls rest", "tavern")
     matches = [
         loc_id for loc_id in LOCATIONS[here]["exits"]
-        if target and (target in loc_id or target in LOCATIONS[loc_id]["name"].lower().replace("'", ""))
+        if target_name and (
+            target_id in loc_id
+            or target_name in LOCATIONS[loc_id]["name"].lower().replace("'", "")
+        )
     ]
     if not matches:
         exits = ", ".join(LOCATIONS[e]["name"] for e in LOCATIONS[here]["exits"])
