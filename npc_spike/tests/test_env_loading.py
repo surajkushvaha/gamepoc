@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 class EnvLoadingTests(unittest.TestCase):
-    def test_dotenv_is_loaded_from_project_directory(self):
-        env_path = Path(__file__).resolve().parents[1] / ".env"
+    def test_dotenv_is_loaded_from_global_secrets_file(self):
+        env_path = Path.home() / ".secrets" / ".env"
         self.assertTrue(env_path.exists(), f"Expected env file at {env_path}")
 
         os.environ.pop("CEREBRAS_API_KEY", None)

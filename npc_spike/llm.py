@@ -7,8 +7,9 @@ we immediately fall over to the next. Every provider here is OpenAI-compatible,
 so a single `openai` client works for all of them — only the base URL, API key,
 and model name change.
 
-Configure keys in a local `.env` (git-ignored). Set at least one; the router
-skips any provider whose key is missing. Override the order with NPC_AI_ROUTE.
+Configure keys in `~/.secrets/.env` (machine-global, shared across projects)
+or a local git-ignored `.env`. Set at least one; the router skips any provider
+whose key is missing. Override the order with NPC_AI_ROUTE.
 """
 
 import os
@@ -18,8 +19,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI, RateLimitError
 
-# Load local .env file from the project root when present.
+# Secrets live in the machine-global ~/.secrets/.env, shared by every project
+# (keeps keys out of project folders that get screen-shared). A local .env in
+# this folder still wins when present: dotenv never overrides vars already set.
 load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path.home() / ".secrets" / ".env")
 
 # --- Provider registry -----------------------------------------------------
 # name -> (OpenAI-compatible base URL, env var holding the key).
