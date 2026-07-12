@@ -191,12 +191,22 @@ What happened today:
 
 def hearsay_memory(source_npc_name, gossip):
     """Wrap a rumor as a low-importance memory in a listener's stream."""
+    return event_memory(
+        f"{source_npc_name} mentioned the traveler: \"{gossip}\"",
+        "curious (secondhand)",
+        3,
+    )
+
+
+def event_memory(description, valence, importance):
+    """A memory entry planted by game mechanics (gossip, a death, world events)
+    rather than summarized from a conversation."""
     now = _now()
     return {
         "id": str(uuid.uuid4()),
         "timestamp": now,
-        "description": f"{source_npc_name} mentioned the traveler: \"{gossip}\"",
-        "emotional_valence": "curious (secondhand)",
-        "importance": 3,
+        "description": description,
+        "emotional_valence": valence,
+        "importance": max(1, min(10, int(importance))),
         "last_accessed": now,
     }

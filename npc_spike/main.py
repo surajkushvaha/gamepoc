@@ -18,7 +18,14 @@ The four core memory-loop steps are marked STEP 1-4 below.
 """
 
 from llm import describe_route, get_client
-from memory import hearsay_memory, make_gossip, reflect, retrieve, summarize_turn
+from memory import (
+    event_memory,
+    hearsay_memory,
+    make_gossip,
+    reflect,
+    retrieve,
+    summarize_turn,
+)
 from narrator import narrate_action, narrate_arrival, narrate_login
 from npc import NPCS, generate_opening, generate_reply
 from referee import is_action, resolve_action
@@ -53,13 +60,33 @@ HELP_HINT = "(Talk plainly, act with *asterisks*, '/go <place>' to move, '/where
 
 
 def npc_here(state):
-    """The npc_id resident at the player's current location, or None."""
-    return LOCATIONS[state["player"]["location"]]["npc"]
+    """The npc_id of the LIVING resident at the player's location, or None.
+    A dead NPC's location behaves like an empty one — the narrator answers."""
+    npc_id = LOCATIONS[state["player"]["location"]]["npc"]
+    if npc_id and not state["npcs"][npc_id].get("alive", True):
+        return None
+    return npc_id
+
+
+def death_note(state, location_id):
+    """A note for the narrator when a location's keeper is dead, so generated
+    scenes describe the absence instead of a living Wren polishing glasses."""
+    npc_id = LOCATIONS[location_id]["npc"]
+    if npc_id and not state["npcs"][npc_id].get("alive", True):
+        death = state["npcs"][npc_id].get("death", {})
+        return (f"{NPCS[npc_id]['name']}, who kept this place, is dead "
+                f"(day {death.get('day', '?')}). The place stands unkept and quiet.")
+    return None
 
 
 def print_debug(state):
     """/memory: dump the local NPC's beliefs + 5 most recent memories."""
-    npc_id = npc_here(state)
+    npc_id = LOCATIONS[state["player"]["location"]]["npc"]
+    if npc_id and not state["npcs"][npc_id].get("alive", True):
+        death = state["npcs"][npc_id].get("death", {})
+        print(f"[{NPCS[npc_id]['name']} died on day {death.get('day', '?')}. "
+              "The dead keep no new memories.]\n")
+        return
     if not npc_id:
         print("[No one lives here — nothing to inspect.]\n")
         return
@@ -132,10 +159,10 @@ def handle_go(state, arg, conversations):
     dest = matches[0]
     state["player"]["location"] = dest
     try:
-        print(narrate_arrival(state["world"], here, dest) + "\n")
+        print(narrate_arrival(state["world"], here, dest, death_note(state, dest)) + "\n")
     except Exception as err:  # noqa: BLE001
         print(f"[You make your way to {LOCATIONS[dest]['name']}. ({err})]\n")
-    npc_id = LOCATIONS[dest]["npc"]
+    npc_id = npc_here(state)  # None if the resident is dead
     if npc_id and not conversations[npc_id]:
         greet(state, npc_id, conversations)
 
@@ -160,6 +187,9 @@ def converse(state, npc_id, player_text, conversations, session_memories):
             ruling = None
         if ruling:
             print(f"[{ruling['fact']}]\n")
+            if ruling.get("fatal"):
+                kill_npc(state, npc_id, ruling["fact"], session_memories)
+                return
             turn_text = f"{player_text}\n[Referee: {ruling['fact']}]"
 
     # STEP 2 (retrieve): a small slice of memory + all beliefs feed the reply.
@@ -188,6 +218,32 @@ def converse(state, npc_id, player_text, conversations, session_memories):
         print(f"[(couldn't log that memory: {err})]\n")
 
 
+def kill_npc(state, npc_id, fact, session_memories):
+    """Permadeath. The victim is gone for good: their location empties, and
+    every surviving NPC immediately learns of the killing as a maximum-
+    importance memory (news like this doesn't wait for evening gossip). Those
+    memories are also queued for reflection, so survivors' beliefs about the
+    player turn at session end — fear, grief, hostility, as their
+    personalities dictate."""
+    victim = NPCS[npc_id]["name"]
+    npc_state = state["npcs"][npc_id]
+    npc_state["alive"] = False
+    npc_state["death"] = {"day": state["world"]["day"], "fact": fact}
+    session_memories[npc_id].clear()  # the dead don't reflect or gossip
+    print(f"[{victim} is dead. In a town this small, everyone will know by sundown.]\n")
+
+    for other_id, other in NPCS.items():
+        if other_id == npc_id or not state["npcs"][other_id].get("alive", True):
+            continue
+        entry = event_memory(
+            f"The traveler killed {victim}. {fact}",
+            "horrified and afraid",
+            10,
+        )
+        state["npcs"][other_id]["memories"].append(entry)
+        session_memories[other_id].append(entry)
+
+
 def finish(state, session_memories):
     """STEP 4 on exit: each NPC you dealt with reflects, then gossips to the
     others, then EVERYTHING saves. Runs in a finally block so no exit path —
@@ -212,7 +268,7 @@ def finish(state, session_memories):
         if not rumor:
             continue
         for other_id in NPCS:
-            if other_id != npc_id:
+            if other_id != npc_id and state["npcs"][other_id].get("alive", True):
                 state["npcs"][other_id]["memories"].append(
                     hearsay_memory(NPCS[npc_id]["name"], rumor)
                 )
@@ -252,7 +308,8 @@ def main():
         if here_npc and state["npcs"][here_npc]["memories"]:
             last = state["npcs"][here_npc]["memories"][-1]["description"]
         try:
-            print(narrate_login(state["world"], state["player"]["location"], last) + "\n")
+            print(narrate_login(state["world"], state["player"]["location"], last,
+                                death_note(state, state["player"]["location"])) + "\n")
         except Exception as err:  # noqa: BLE001
             print(f"[You're back, {when_and_where(state['world'], state['player']['location'])}. ({err})]\n")
         print(HELP_HINT + "\n")
@@ -285,20 +342,24 @@ def main():
                 handle_go(state, text[3:], conversations)
                 continue
             if low == "/look":
+                here = state["player"]["location"]
                 try:
-                    print(narrate_action(state["world"], state["player"]["location"],
-                                         "look around, taking the place in") + "\n")
+                    print(narrate_action(state["world"], here,
+                                         "look around, taking the place in",
+                                         death_note(state, here)) + "\n")
                 except Exception as err:  # noqa: BLE001
-                    print(f"[{LOCATIONS[state['player']['location']]['description']} ({err})]\n")
+                    print(f"[{LOCATIONS[here]['description']} ({err})]\n")
                 continue
 
             npc_id = npc_here(state)
             if npc_id:
                 converse(state, npc_id, text, conversations, session_memories)
             else:
-                # Nobody here: the narrator is the world's answer.
+                # Nobody (living) here: the narrator is the world's answer.
+                here = state["player"]["location"]
                 try:
-                    print(narrate_action(state["world"], state["player"]["location"], text) + "\n")
+                    print(narrate_action(state["world"], here, text,
+                                         death_note(state, here)) + "\n")
                 except Exception as err:  # noqa: BLE001
                     print(f"[The wind takes your words; nothing answers. ({err})]\n")
     except KeyboardInterrupt:

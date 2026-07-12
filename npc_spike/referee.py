@@ -31,7 +31,8 @@ def resolve_action(world, location_id, npc_name, player_text):
     """Decide what ACTUALLY happens. Returns a dict:
 
         {"outcome": "succeeds"|"partly"|"fails"|"impossible",
-         "fact": "one past-tense sentence of what really happened"}
+         "fact": "one past-tense sentence of what really happened",
+         "fatal": bool}   # True only if the action killed the present NPC
 
     or None if resolution failed (callers fall back to the old behavior of
     letting the NPC interpret the raw text).
@@ -57,13 +58,18 @@ Resolve the ATTEMPTED ACTION strictly under the rules:
 - Anything violating the rules (magic, superhuman feats, mind control, erasing
   memories, teleporting) is "impossible": describe the attempt visibly failing
   or amounting to nothing — the words are just words.
-- Violence between people: resolve the ATTEMPT realistically (people dodge,
-  struggle, shout, get hurt) but never kill or permanently maim anyone.
+- Violence between people: resolve the attempt realistically. Ordinary people
+  resist, dodge, flee, scream, fight back — an unarmed swing rarely kills. A
+  lethal outcome IS possible, but only when genuinely plausible (a decisive
+  attack, a weapon, a victim caught off guard). If the action kills the person
+  present, say so plainly in the fact and set "fatal": true. Death is
+  permanent and this world treats it as the grave crime it is.
 - Never invent new characters, items of power, or plot.
 
 Respond with ONLY a JSON object, no prose:
 {{ "outcome": "succeeds" | "partly" | "fails" | "impossible",
-  "fact": "ONE short past-tense sentence stating what actually, visibly happened" }}
+  "fact": "ONE short past-tense sentence stating what actually, visibly happened",
+  "fatal": true | false }}
 """
     raw = chat(
         [{"role": "user", "content": prompt}],
@@ -74,5 +80,7 @@ Respond with ONLY a JSON object, no prose:
     outcome = str(parsed.get("outcome", "")).strip().lower()
     fact = str(parsed.get("fact", "")).strip()
     if outcome in {"succeeds", "partly", "fails", "impossible"} and fact:
-        return {"outcome": outcome, "fact": fact}
+        # fatal only counts when someone is actually here and the attempt landed
+        fatal = bool(parsed.get("fatal")) and bool(npc_name) and outcome in {"succeeds", "partly"}
+        return {"outcome": outcome, "fact": fact, "fatal": fatal}
     return None

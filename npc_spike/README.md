@@ -71,6 +71,18 @@ happened, not what you claimed. This layer is also the seam where a real
 ability/combat/inventory system plugs in later: grant powers in
 `PLAYER_RULES`, or replace the LLM ruling with hard game logic.
 
+### Death is real (permadeath + consequences)
+
+Violence resolves realistically — people resist, dodge, fight back — but a
+genuinely plausible lethal attack **kills**. Death is permanent state, not
+prose: the victim gets `alive: false` and a death record, their location
+empties for good (the narrator describes the absence), the dead keep no new
+memories and never speak again. And the town answers for it: every survivor
+immediately receives a maximum-importance memory of the killing, reflects on
+it at session end, and their beliefs about you turn — fear, grief, hostility,
+each according to their personality. Kill Wren and expect Brann to be done
+with you. There is no undo.
+
 The memory loop per NPC (the architecture under test):
 
 1. **Load** the world: every NPC's memories/beliefs + your position + the clock.

@@ -23,21 +23,22 @@ You are the narrator of a quiet low-fantasy text game. Style rules:
 """
 
 
-def _scene_facts(world, location_id):
+def _scene_facts(world, location_id, note=None):
     loc = LOCATIONS[location_id]
+    extra = f"\nEstablished fact: {note}" if note else ""
     return (
         f"World: {WORLD_LORE}\n"
         f"Current moment: {when_and_where(world, location_id)}.\n"
-        f"Location: {loc['name']} — {loc['description']}"
+        f"Location: {loc['name']} — {loc['description']}{extra}"
     )
 
 
-def narrate_login(world, location_id, last_memory=None):
+def narrate_login(world, location_id, last_memory=None, note=None):
     """Opening scene for a returning player: picks up exactly where they left
     off, colored by the most recent thing that happened to them."""
     recent = f"\nLast time: {last_memory}" if last_memory else ""
     prompt = (
-        f"{_scene_facts(world, location_id)}{recent}\n\n"
+        f"{_scene_facts(world, location_id, note)}{recent}\n\n"
         "The player returns to the game here, exactly where they left off. "
         "Narrate the moment they find themselves in — the place, the hour, "
         "the feel of picking their life here back up."
@@ -49,11 +50,11 @@ def narrate_login(world, location_id, last_memory=None):
     )
 
 
-def narrate_arrival(world, from_id, to_id):
+def narrate_arrival(world, from_id, to_id, note=None):
     """The walk from one place to another, generated from the map + clock."""
     frm, to = LOCATIONS[from_id], LOCATIONS[to_id]
     prompt = (
-        f"{_scene_facts(world, to_id)}\n\n"
+        f"{_scene_facts(world, to_id, note)}\n\n"
         f"The player just walked here from {frm['name']}. Narrate the short "
         "walk and what greets them as they arrive."
     )
@@ -64,11 +65,11 @@ def narrate_arrival(world, from_id, to_id):
     )
 
 
-def narrate_action(world, location_id, player_text):
+def narrate_action(world, location_id, player_text, note=None):
     """Resolve what the player says/does somewhere with no NPC around —
     looking, searching, wandering. The narrator is the world's answer."""
     prompt = (
-        f"{_scene_facts(world, location_id)}\n\n"
+        f"{_scene_facts(world, location_id, note)}\n\n"
         f"Hard rules about the player:\n{PLAYER_RULES}\n\n"
         f"Alone here, the player does/says: {player_text!r}\n"
         "Narrate what they find, notice, or what happens — strictly within the "

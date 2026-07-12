@@ -24,7 +24,7 @@ START_LOCATION = "gulls_rest"
 
 
 def _empty_npc():
-    return {"memories": [], "beliefs": []}
+    return {"memories": [], "beliefs": [], "alive": True}
 
 
 def _empty_state():
@@ -66,6 +66,7 @@ def load_state():
         raw.setdefault(key, default)
     for npc_id in NPC_IDS:
         raw["npcs"].setdefault(npc_id, _empty_npc())
+        raw["npcs"][npc_id].setdefault("alive", True)  # pre-death saves
     return raw
 
 
