@@ -10,23 +10,48 @@ AI-driven from the player's actual decisions.
 SETTING_NAME = "Saltmere"
 
 WORLD_LORE = """\
-The world is a low-fantasy realm of kingdoms, guilds, and wandering adventurers
-— sails and lanterns and a little old magic, no modern technology (no cars,
-phones, or coffee shops). Saltmere is a weathered harbor town on the western
-edge of the kingdom of Aldermoor. Travelers pass through chasing work, rumors,
-or passage by sea."""
+Three generations ago, mana returned to the world. Shimmering rifts called
+GATES tear open without warning and spill monsters until someone closes them;
+ordinary people sometimes AWAKEN with a mana core and take an adventurer's
+license from the Guild, ranked E (fresh) up to S (legendary). Healers are rare
+and watched closely — mending flesh borders on the forbidden arts — and rumor
+says a hidden order moves in the shadows behind every kingdom. For all that,
+daily life stays sails, lanterns, and salted fish: no modern technology.
 
-# What the player character actually IS. The referee resolves every *action*
-# against these rules, so outcomes are canonical world physics instead of
-# whichever NPC happens to be watching. Grant abilities here (and only here)
-# if the game ever gives the player powers.
-PLAYER_RULES = """\
-The traveler is an ordinary human. They have NO magic, NO supernatural
-abilities, and ordinary strength — saying words of power does nothing, and
-claiming an ability doesn't create it. Wounds, weather, fatigue, and other
-people's reactions are all real. They can do anything an ordinary determined
-person could physically attempt; attempts can succeed, partly succeed, or
-fail, but never break these rules."""
+Saltmere is a weathered harbor town on the western edge of the kingdom of
+Aldermoor. An unstable Gate glimmers offshore beyond the old lighthouse — too
+small to panic over, too strange to ignore — and it has begun drawing
+adventurers, Guild bounties, and trouble to a town that used to see none."""
+
+# Starting abilities for a fresh character: low-rank versions of the classic
+# fantasies (a bolt, a heal, a shadow-step). The referee treats this list —
+# and only this list — as what the player can genuinely do.
+STARTING_ABILITIES = [
+    "Spark — hurl a small crackling bolt of mana (stings, scorches; can't demolish)",
+    "Mend — slow minor healing by touch (cuts and bruises, not lost limbs)",
+    "Shade-step — melt into shadow for a few silent steps (moments, not minutes)",
+]
+
+
+def build_player_rules(player):
+    """What the player character actually IS. The referee resolves every
+    *action* against these rules, so outcomes are canonical world physics
+    instead of whichever NPC happens to be watching. Abilities grow here (and
+    only here) as the game grants them."""
+    abilities = "\n".join(f"- {a}" for a in player.get("abilities", []))
+    return f"""\
+{player['name']} is a newly Awakened adventurer — Guild rank E, level
+{player.get('level', 1)}, {player.get('gender', 'unspecified')}. They carry a
+fresh Guild license and a weak but real mana core.
+
+Abilities they can GENUINELY use, at modest low-rank strength:
+{abilities}
+
+Anything beyond that list — grand spells, mind control, erasing memories,
+flight, raising the dead, mass destruction — visibly fizzles: their core is
+far too weak, and overreach leaves them drained and dizzy. Claiming a power
+doesn't create it. Wounds, fatigue, and other people's reactions are real, and
+the death of any person is permanent. Words alone never change reality."""
 
 # The map: a handful of places, each with exits and at most one resident NPC.
 LOCATIONS = {
@@ -54,14 +79,16 @@ LOCATIONS = {
     "coast_road": {
         "name": "The Coast Road",
         "description": "The wind-beaten road out of town, running along the "
-                       "cliffs toward the capital. Gorse, spray, and distance.",
+                       "cliffs toward the capital. Gorse, spray, and — on clear "
+                       "nights — a faint wrong-colored glimmer out at sea.",
         "exits": ["docks", "lighthouse"],
         "npc": None,
     },
     "lighthouse": {
         "name": "The Old Lighthouse",
         "description": "A salt-streaked lighthouse above the cliffs, still "
-                       "burning at night. Wren grew up here.",
+                       "burning at night. Wren grew up here. From the gallery "
+                       "you can see the offshore Gate shimmer on the water.",
         "exits": ["coast_road"],
         "npc": None,
     },

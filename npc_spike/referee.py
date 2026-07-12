@@ -3,7 +3,8 @@
 The problem this solves: without it, whether an action "works" is decided by
 whichever NPC happens to be watching — the LLM playing Sera arbitrates your
 "magic", and each character rules differently. The referee is an impartial
-layer that resolves every *action* against the world's rules (world.PLAYER_RULES)
+layer that resolves every *action* against the character's actual rules
+(world.build_player_rules)
 BEFORE the NPC sees it, producing one established fact. The NPC then reacts to
 what actually happened, not to the player's claim.
 
@@ -16,7 +17,7 @@ import re
 
 from llm import chat
 from memory import _extract_json
-from world import LOCATIONS, PLAYER_RULES, WORLD_LORE, when_and_where
+from world import LOCATIONS, WORLD_LORE, build_player_rules, when_and_where
 
 # An "action" is any input containing *asterisked* (or parenthesized) stage
 # direction — the conventions the game teaches the player.
@@ -27,7 +28,7 @@ def is_action(player_text):
     return bool(_ACTION_RE.search(player_text))
 
 
-def resolve_action(world, location_id, npc_name, player_text):
+def resolve_action(world, player, location_id, npc_name, player_text):
     """Decide what ACTUALLY happens. Returns a dict:
 
         {"outcome": "succeeds"|"partly"|"fails"|"impossible",
@@ -44,7 +45,7 @@ anyone; you only decide what actually happens, like physics.
 World: {WORLD_LORE}
 
 Hard rules about the player character:
-{PLAYER_RULES}
+{build_player_rules(player)}
 
 Scene: {when_and_where(world, location_id)} — {LOCATIONS[location_id]['description']}
 {witness}
@@ -55,9 +56,12 @@ rest is speech): {player_text!r}
 Resolve the ATTEMPTED ACTION strictly under the rules:
 - Ordinary feats (sitting, handing over an item, working, running) usually succeed.
 - Risky feats can succeed, partly succeed, or fail — judge plausibility.
-- Anything violating the rules (magic, superhuman feats, mind control, erasing
-  memories, teleporting) is "impossible": describe the attempt visibly failing
-  or amounting to nothing — the words are just words.
+- Magic WITHIN the player's listed abilities works, at the listed low-rank
+  strength — describe the real, modest effect (a spark stings; it doesn't
+  level a wall).
+- Magic or feats BEYOND those abilities (grand spells, mind control, erasing
+  memories, teleporting, flight) is "impossible": their weak core visibly
+  fizzles, and serious overreach leaves them drained or dizzy.
 - Violence between people: resolve the attempt realistically. Ordinary people
   resist, dodge, flee, scream, fight back — an unarmed swing rarely kills. A
   lethal outcome IS possible, but only when genuinely plausible (a decisive
