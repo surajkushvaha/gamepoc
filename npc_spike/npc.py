@@ -113,6 +113,10 @@ How to behave — this is the important part:
 Reading the traveler's input:
 - Text wrapped in *asterisks* or (parentheses) is something they DO, not say.
   React to actions physically and naturally.
+- A bracketed line "[Referee: ...]" states what ACTUALLY happened when they
+  acted — that is ground truth. If it says their attempt failed or nothing
+  happened, then nothing happened, no matter what they claimed. React to the
+  reality, the way a person watching would.
 - Everything else is spoken aloud.
 
 Your own format:

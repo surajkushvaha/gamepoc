@@ -8,7 +8,7 @@ visits read the same.
 """
 
 from llm import chat
-from world import LOCATIONS, WORLD_LORE, when_and_where
+from world import LOCATIONS, PLAYER_RULES, WORLD_LORE, when_and_where
 
 # Shared style rules so the narrator stays a camera, not a co-author: it paints
 # the moment but must not invent plot, speak for NPCs, or decide for the player.
@@ -69,9 +69,11 @@ def narrate_action(world, location_id, player_text):
     looking, searching, wandering. The narrator is the world's answer."""
     prompt = (
         f"{_scene_facts(world, location_id)}\n\n"
+        f"Hard rules about the player:\n{PLAYER_RULES}\n\n"
         f"Alone here, the player does/says: {player_text!r}\n"
-        "Narrate what they find, notice, or what happens. Stay modest and "
-        "grounded — this is an ordinary place on an ordinary day."
+        "Narrate what they find, notice, or what happens — strictly within the "
+        "rules above (impossible attempts visibly amount to nothing). Stay "
+        "modest and grounded — this is an ordinary place on an ordinary day."
     )
     return chat(
         [{"role": "system", "content": _STYLE}, {"role": "user", "content": prompt}],

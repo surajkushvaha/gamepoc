@@ -50,12 +50,26 @@ npc_spike/
   npc.py       # the cast (personalities as data) + per-NPC reply generation
   memory.py    # memory stream: retrieval, per-turn logging, reflection, gossip
   narrator.py  # LLM game master: login scenes, walks, exploration outcomes
-  world.py     # the map, exits, world clock — the only hand-authored world data
+  referee.py   # canonical resolution of player *actions* against world rules
+  world.py     # the map, exits, clock, player rules — the hand-authored skeleton
   storage.py   # one JSON file: world + player position + every NPC's mind
   llm.py       # multi-provider router: failover, circuit breaker, backoff
   data/
     state.json # created on first run (old single-NPC saves migrate automatically)
 ```
+
+### The referee (why your "magic" doesn't work)
+
+Without a referee, whether an action "works" is decided by whichever NPC is
+watching — inconsistent and gameable. Now every input containing an `*action*`
+is first resolved by an impartial referee against `world.PLAYER_RULES` (you are
+an ordinary human: no magic, no superhuman feats). The referee outputs one
+established fact — shown to you as narration and handed to the NPC as
+`[Referee: ...]` ground truth — so `*casts a fireball*` visibly amounts to
+nothing no matter who's watching, and NPC memories record what really
+happened, not what you claimed. This layer is also the seam where a real
+ability/combat/inventory system plugs in later: grant powers in
+`PLAYER_RULES`, or replace the LLM ruling with hard game logic.
 
 The memory loop per NPC (the architecture under test):
 

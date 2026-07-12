@@ -21,6 +21,7 @@ from llm import describe_route, get_client
 from memory import hearsay_memory, make_gossip, reflect, retrieve, summarize_turn
 from narrator import narrate_action, narrate_arrival, narrate_login
 from npc import NPCS, generate_opening, generate_reply
+from referee import is_action, resolve_action
 from storage import load_state, save_state
 from world import LOCATIONS, advance_time, when_and_where
 
@@ -140,13 +141,30 @@ def handle_go(state, arg, conversations):
 
 
 def converse(state, npc_id, player_text, conversations, session_memories):
-    """One exchange with the local NPC: retrieve -> respond -> log memory."""
+    """One exchange with the local NPC: referee -> retrieve -> respond -> log."""
     npc_state = state["npcs"][npc_id]
     conversation = conversations[npc_id]
 
+    # Referee: if the player is ACTING (not just talking), resolve what really
+    # happened FIRST, so the outcome is canonical world physics instead of
+    # this particular NPC's improvisation. The established fact is shown to
+    # the player and handed to the NPC as ground truth.
+    turn_text = player_text
+    if is_action(player_text):
+        try:
+            ruling = resolve_action(
+                state["world"], state["player"]["location"],
+                NPCS[npc_id]["name"], player_text,
+            )
+        except Exception:  # noqa: BLE001 - referee is best-effort
+            ruling = None
+        if ruling:
+            print(f"[{ruling['fact']}]\n")
+            turn_text = f"{player_text}\n[Referee: {ruling['fact']}]"
+
     # STEP 2 (retrieve): a small slice of memory + all beliefs feed the reply.
     memories = retrieve(npc_state)
-    conversation.append({"role": "user", "content": player_text})
+    conversation.append({"role": "user", "content": turn_text})
     conversation[:] = conversation[-MAX_HISTORY_TURNS:]
     try:
         npc_text = generate_reply(
@@ -160,9 +178,10 @@ def converse(state, npc_id, player_text, conversations, session_memories):
     conversation[:] = conversation[-MAX_HISTORY_TURNS:]
     print(f"{NPCS[npc_id]['name']}> {npc_text}\n")
 
-    # STEP 3: log what just happened into THIS NPC's memory stream.
+    # STEP 3: log what just happened into THIS NPC's memory stream — using the
+    # refereed text, so the memory records what really occurred, not the claim.
     try:
-        entry = summarize_turn(NPCS[npc_id]["name"], player_text, npc_text)
+        entry = summarize_turn(NPCS[npc_id]["name"], turn_text, npc_text)
         npc_state["memories"].append(entry)
         session_memories[npc_id].append(entry)
     except Exception as err:  # noqa: BLE001

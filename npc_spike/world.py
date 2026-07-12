@@ -16,6 +16,18 @@ phones, or coffee shops). Saltmere is a weathered harbor town on the western
 edge of the kingdom of Aldermoor. Travelers pass through chasing work, rumors,
 or passage by sea."""
 
+# What the player character actually IS. The referee resolves every *action*
+# against these rules, so outcomes are canonical world physics instead of
+# whichever NPC happens to be watching. Grant abilities here (and only here)
+# if the game ever gives the player powers.
+PLAYER_RULES = """\
+The traveler is an ordinary human. They have NO magic, NO supernatural
+abilities, and ordinary strength — saying words of power does nothing, and
+claiming an ability doesn't create it. Wounds, weather, fatigue, and other
+people's reactions are all real. They can do anything an ordinary determined
+person could physically attempt; attempts can succeed, partly succeed, or
+fail, but never break these rules."""
+
 # The map: a handful of places, each with exits and at most one resident NPC.
 LOCATIONS = {
     "gulls_rest": {
