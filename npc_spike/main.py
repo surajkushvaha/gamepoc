@@ -111,14 +111,19 @@ def handle_go(state, arg, conversations):
     raw = arg.strip().lower().replace("'", "")
     target_id = raw.replace(" ", "_")        # e.g. "the_gulls_rest"
     target_name = raw                         # e.g. "the gulls rest"
-    # Accept both ids ("gulls_rest") and loose names ("gulls rest", "tavern")
-    matches = [
-        loc_id for loc_id in LOCATIONS[here]["exits"]
+    # Accept ids ("gulls_rest"), loose names ("gulls rest"), and phrases that
+    # merely contain a distinctive word of the destination ("explore market") —
+    # any direction word longer than 3 chars appearing in the input counts.
+    matches = []
+    for loc_id in LOCATIONS[here]["exits"]:
+        name = LOCATIONS[loc_id]["name"].lower().replace("'", "")
+        tokens = {t for t in set(loc_id.split("_")) | set(name.split()) if len(t) > 3}
         if target_name and (
             target_id in loc_id
-            or target_name in LOCATIONS[loc_id]["name"].lower().replace("'", "")
-        )
-    ]
+            or target_name in name
+            or any(t in target_name for t in tokens)
+        ):
+            matches.append(loc_id)
     if not matches:
         exits = ", ".join(LOCATIONS[e]["name"] for e in LOCATIONS[here]["exits"])
         print(f"[You can go to: {exits}]\n")
