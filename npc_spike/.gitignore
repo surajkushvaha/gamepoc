@@ -1,7 +1,7 @@
 # Runtime state is generated on first run — keep it out of version control so
 # every tester starts from a clean slate.
-# data/state.json
-
+data/state.json
+data/chat logs.md
 # Secrets: real API keys live only in a local .env, never in git.
 .env
 .env.*
